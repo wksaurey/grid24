@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>Grid24 Proto</title>
+<style>
+  :root {
+    --bg: #191c22; --surface: #22262e; --surface-2: #2a2f39; --line: #363c48;
+    --ink: #ece7d9; --ink-dim: #9a958a; --accent: #e8873a; --good: #8fb573; --bad: #c96a5c;
+    --mono: "JetBrains Mono", "Cascadia Mono", "Roboto Mono", ui-monospace, Menlo, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overscroll-behavior: none; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--sans);
+    display: flex; flex-direction: column; max-width: 560px; margin: 0 auto;
+    padding: 10px 10px 8px; user-select: none; -webkit-user-select: none;
+    touch-action: pan-y; overflow: hidden;
+  }
+  h1 {
+    font-family: var(--mono); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 8px;
+  }
+  h1 .dot { color: var(--accent); }
+
+  #out {
+    font-family: var(--mono); font-size: 16px; line-height: 1.6;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; min-height: 5em; max-height: 8em; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-word;
+    cursor: text;
+  }
+  #out .del {
+    color: var(--bad);
+    background: rgba(201, 106, 92, 0.22);
+    border-radius: 3px;
+  }
+  #out .caret {
+    display: inline-block; width: 2px; height: 1.05em;
+    background: var(--accent); vertical-align: text-bottom;
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { #out .caret { animation: none; } }
+
+  #stats {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+    padding: 6px 2px 0; font-variant-numeric: tabular-nums;
+  }
+  #stats b { color: var(--ink); font-weight: 700; }
+  #stats .st-accent b { color: var(--accent); }
+
+  #help {
+    font-family: var(--mono); font-size: 10.5px; line-height: 1.7;
+    color: var(--ink-dim); letter-spacing: 0.02em;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; margin-top: 8px;
+    flex: 1 1 auto;
+    min-height: 56px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #help .hd {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent); opacity: 0.85; margin-bottom: 2px;
+  }
+  #help .sec2 { margin-top: 7px; }
+  #help b { color: var(--ink); font-weight: 700; }
+
+  #settings {
+    margin-top: 6px;
+    display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+    padding: 6px 0 4px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+  }
+  #settings button, #settings label.tog {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px;
+    background: var(--surface); color: var(--ink-dim); cursor: pointer;
+  }
+  #settings button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #flags {
+    display: flex; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 2px 2px 4px; color: var(--ink-dim); min-height: 18px;
+  }
+  #flags span { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); display: none; }
+  #flags span.show { display: inline-block; color: var(--accent); border-color: var(--accent); }
+
+  #board {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    grid-template-rows: repeat(4, clamp(40px, 5.6vh, 52px)) clamp(50px, 7vh, 64px);
+    gap: 4px; touch-action: none; padding-bottom: 18px;
+  }
+  .key.fn { grid-column: span 3; background: var(--surface-2); }
+  .key.fn .pri { font-size: 13px; letter-spacing: 0.14em; color: var(--ink-dim); }
+  .key.fn.press .pri { color: #1a1408; }
+  .key {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: var(--mono); position: relative; pointer-events: none;
+  }
+  .key .pri { font-size: 19px; font-weight: 700; line-height: 1; }
+  .key .sec {
+    font-size: 10px; color: var(--ink-dim); line-height: 1;
+    position: absolute; right: 5px; bottom: 4px;
+  }
+  .key .sec.num { color: var(--accent); opacity: 0.7; }
+  #board.nonum .sec.num { display: none; }
+  #board.numgrid { grid-template-columns: repeat(4, 1fr); }
+  #board.numgrid .key .pri { font-size: 23px; }
+  #board.numgrid .key.fn { grid-column: span 2; }
+  #board.numgrid .key.fn .pri { font-size: 13px; }
+  #board.editing { outline: 2px dashed var(--accent); outline-offset: 3px; border-radius: 6px; }
+  .key.selkey { background: #3a2c1c; border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .key.merged { background: var(--surface-2); }
+  .key.press { background: var(--accent); color: #1a1408; }
+  .key.press .sec { color: #1a1408; opacity: 0.7; }
+  .key.longing { background: var(--accent); color: #1a1408; }
+
+  #legend {
+    font-family: var(--mono); font-size: 10px; color: var(--ink-dim);
+    text-align: center; padding-bottom: 2px; letter-spacing: 0.02em; line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<h1>Grid24 Proto <span class="dot">●</span> editing rig</h1>
+
+<div id="out"></div>
+
+<div id="flags">
+  <span id="fShift">shift</span>
+  <span id="fCaps">caps</span>
+  <span id="fSym">sym</span>
+  <span id="fNumLayer">num</span>
+</div>
+
+<div id="stats">
+  <span class="st-accent">wpm <b id="sWpm">–</b></span>
+  <span>chars <b id="sCh">0</b></span>
+  <span>⌫ <b id="sBk">0</b></span>
+  <span>2nd <b id="sSec">0</b></span>
+</div>
+
+<div id="help">
+  <div class="hd">Gestures</div>
+  <div>tap = letter · <b>hold</b> = small letter / digit · tap text = place cursor · double-space = period<br>
+  quick swipe ⇠ ⇢ = move cursor (with selection: jump to that end)<br>
+  slow drag ⇠ = select back · slow drag ⇢ = select forward / move selection<br>
+  swipe ↑ = shift · swipe ↓ left = <b>symbols</b> · ↓ right = <b>calculator</b> · ↓ in a layer = back<br>hold SPACE = enter · hold DELETE = repeat<br><b>edit</b> button: tap one key, then another — they swap (per layer, saved on device)</div>
+  <div class="sec2 hd">Layout</div>
+  <div id="layNote"></div>
+</div>
+
+<div id="settings">
+  <label class="tog"><input type="checkbox" id="cHaptic" checked> haptics</label>
+  <button id="bLayout" type="button">lay: qwerty</button>
+  <button id="bNum" type="button">123: on</button>
+  <button id="bSwapFn" type="button">swap ⌫/␣</button>
+  <button id="bEdit" type="button">edit</button>
+  <button id="bRestore" type="button" style="display:none">restore layout</button>
+  <button id="bReset" type="button">reset</button>
+</div>
+
+<div id="board"></div>
+
+<script>
+(function () {
+"use strict";
+
+/* ================= layout ================= */
+var LAYOUTS;
+LAYOUTS = {
+  qwerty: [
+    ["q","w","e","r","t","y"],
+    [["x","z"],"c",["u","v"],"i","o","p"],
+    ["a","s","d","j","k","l"],
+    ["f","g","h","b","n","m"]
+  ],
+  optimal: [
+    [["x","z"],"p","j","v","m","c"],
+    [["k","q"],"t","y","b","r","h"],
+    ["g","o","e","l","u","s"],
+    ["d","i","a","f","n","w"]
+  ],
+  vowels: [
+    [["x","z"],"v","s","u","p","j"],
+    [["k","q"],"m","i","l","c","g"],
+    ["b","h","o","e","t","w"],
+    ["d","r","a","n","f","y"]
+  ],
+  vbottom: [
+    [["x","z"],"c","r","y","p","j"],
+    ["g","m","t","h","d","v"],
+    ["w","l","a","o","n","s"],
+    ["f","u","e",["k","q"],"i","b"]
+  ]
+};
+var LAYOUT_ORDER = ["qwerty", "optimal", "vowels", "vbottom"];
+var layoutName = "qwerty";
+var LAYOUT_NOTES = {
+  qwerty: "<b>qwerty</b> — folded QWERTY into six columns. Zero relearning; the control condition.",
+  optimal: "<b>optimal</b> — annealed for two-thumb hand alternation (~75% of letter pairs cross hands), then hand-tuned: vowel square <b>O·E / I·A</b> under the left thumb, U exiled to the consonant side, rare letters stacked in the far-left column.",
+  vowels: "<b>vowels</b> — all vowels pinned to the two center columns so either thumb can take them. High ceiling (97% alternation) but only if crossing the midline feels cheap.",
+  vbottom: "<b>vbottom</b> — vowel strip along the bottom where thumbs rest, T·H adjacent in the center, crossing bounded to one column past the midline (two along the bottom)."
+};
+// symbol layer: 24 primaries + 8 holds = every common symbol, nothing left over
+var SYM_ROWS = [
+  ["!","@","#","$","%",["^","&"]],
+  ["(",")","[","]","{","}"],
+  [["'","`"],["\"","~"],";",":","-","_"],
+  [[",","<"],[".",">"],"?",["/","\\"],["=","|"],["+","*"]]
+];
+// number layer: 4-column calculator, bigger keys; operator column left, keypad right
+var NUM_ROWS = [
+  [["/","("],"7","8","9"],
+  [["*",")"],"4","5","6"],
+  [["-","%"],"1","2","3"],
+  [["+","^"],[".",":"],["0",","],["=","$"]]
+];
+var layer = "alpha";                                   // 'alpha' | 'sym' | 'num'
+
+/* ---- layout editor state & guarded persistence ---- */
+var editMode = false;
+var editSel = null;                                    // keyEls index of the first-tapped key
+var DEFAULT_SETS = JSON.parse(JSON.stringify({ layouts: LAYOUTS, sym: SYM_ROWS, num: NUM_ROWS }));
+function sGet(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
+function sSet(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
+(function loadStored() {
+  var raw = sGet("g24.layouts");
+  if (!raw) return;
+  try {
+    var d = JSON.parse(raw);
+    if (d.layouts && d.sym && d.num) { LAYOUTS = d.layouts; SYM_ROWS = d.sym; NUM_ROWS = d.num; }
+  } catch (e) {}
+})();
+function persistLayouts() {
+  sSet("g24.layouts", JSON.stringify({ layouts: LAYOUTS, sym: SYM_ROWS, num: NUM_ROWS }));
+}
+function currentRows() {
+  return layer === "sym" ? SYM_ROWS : layer === "num" ? NUM_ROWS : LAYOUTS[layoutName];
+}
+var SEED = "the quick brown fox jumps over the lazy dog";
+// numpad rides the right-half keys by POSITION (phone-keypad shape), independent of layout
+var NUMGRID = [["1","2","3"],["4","5","6"],["7","8","9"],[null,"0","."]];
+var numpadOn = true;
+
+/* ================= state ================= */
+var text = SEED;
+var caret = SEED.length;
+var sel = null;                // {a, b} range, or null
+var shiftState = 0;            // 0 none, 1 next, 2 lock
+var haptics = true;
+var startTs = 0;
+var typed = 0;
+var lastSpaceTs = 0;
+var lastShiftTs = 0;
+var stats = { backs: 0, secs: 0 };
+
+var TAP_T = 18;
+var GESTURE_T = 100;
+var HOLD_MS = 200;
+var FLICK_MS = 280;
+var SPACE_HOLD_MS = 550;            // extra-long hold on SPACE = enter
+var DEL_STEP = 22;
+var DEL_BREAK = 280;
+var DEL_REV_BREAK = 120;
+var DEL_EDGE = 60;
+var DEL_RATE_MIN = 2;
+var DEL_RATE_MAX = 60;
+var DEL_RATE_SPAN = 60;
+var DEL_RATE_SCALE = 18;
+var DEL_TICK = 50;
+
+/* ================= helpers ================= */
+function $(id) { return document.getElementById(id); }
+function buzz(p) { if (haptics && navigator.vibrate) { try { navigator.vibrate(p); } catch (e) {} } }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+/* zones: leftOver > 0 near left break/edge, rightOver > 0 near right break/edge */
+function leftOver(dx, x)  { return Math.max((-dx) - DEL_BREAK, (DEL_EDGE - x) * 3); }
+function rightOver(dx, x) { return Math.max(dx - DEL_REV_BREAK, (x - (window.innerWidth - DEL_EDGE)) * 3); }
+function zoneRate(over) {
+  return Math.min(DEL_RATE_MAX, DEL_RATE_MIN + Math.pow(over / DEL_RATE_SPAN, 2) * DEL_RATE_SCALE);
+}
+
+/* ================= board ================= */
+var board = $("board");
+var keyEls = [];
+function gridCols() { return layer === "num" ? 4 : 6; }
+function buildBoard(name) {
+  board.textContent = "";
+  keyEls = [];
+  var rows = layer === "sym" ? SYM_ROWS : layer === "num" ? NUM_ROWS : LAYOUTS[name];
+  board.classList.toggle("numgrid", layer === "num");
+  rows.forEach(function (row, ri) {
+    row.forEach(function (k, ci) {
+      var pri = Array.isArray(k) ? k[0] : k;
+      var sec = Array.isArray(k) ? k[1] : null;
+      var num = (layer === "alpha" && ci >= 3) ? NUMGRID[ri][ci - 3] : null;
+      var el = document.createElement("div");
+      el.className = "key" + (sec ? " merged" : "");
+      el.innerHTML = '<span class="pri">' + pri.toUpperCase() + "</span>" +
+                     (sec ? '<span class="sec">' + sec + "</span>" : "") +
+                     (num ? '<span class="sec num">' + num + "</span>" : "");
+      board.appendChild(el);
+      keyEls.push({ el: el, pri: pri, sec: sec, num: num });
+    });
+  });
+  layoutFnRow();                                       // fn key elements persist across rebuilds
+  board.classList.toggle("nonum", !numpadOn);
+}
+function setLayer(l) {
+  layer = l;
+  buildBoard(layoutName);
+  buzz([8, 40, 8]);
+  renderStats();
+}
+function altOf(k) {
+  if (!k) return null;
+  return k.sec || (numpadOn && k.num) || null;
+}
+var fnKeys = {};
+var fnOrder = ["del", "space"];                        // left slot, right slot
+["del", "space"].forEach(function (fn) {
+  var el = document.createElement("div");
+  el.className = "key fn";
+  el.innerHTML = '<span class="pri">' + (fn === "space" ? "SPACE" : "⌫ DELETE") + "</span>";
+  fnKeys[fn] = { el: el, fn: fn };
+});
+function layoutFnRow() {                               // appending moves existing nodes: order = grid order
+  board.appendChild(fnKeys[fnOrder[0]].el);
+  board.appendChild(fnKeys[fnOrder[1]].el);
+}
+buildBoard(layoutName);
+function keyAt(x, y) {
+  var r = board.getBoundingClientRect();
+  if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+  var nc = gridCols();
+  var col = clamp(Math.floor((x - r.left) / (r.width / nc)), 0, nc - 1);
+  // row geometry: 4 letter rows + 1 taller fn row + bottom padding — measure the real fn key
+  var fnTop = fnKeys[fnOrder[0]].el.getBoundingClientRect().top;
+  if (y >= fnTop) return fnKeys[fnOrder[col < nc / 2 ? 0 : 1]];
+  var row = clamp(Math.floor((y - r.top) / ((fnTop - r.top) / 4)), 0, 3);
+  return keyEls[row * nc + col];
+}
+
+/* ================= rendering ================= */
+function renderDoc() {
+  var out = $("out");
+  out.textContent = "";
+  if (sel && sel.b > sel.a) {
+    out.appendChild(document.createTextNode(text.slice(0, sel.a)));
+    var d = document.createElement("span");
+    d.className = "del";
+    d.textContent = text.slice(sel.a, sel.b);
+    out.appendChild(d);
+    out.appendChild(document.createTextNode(text.slice(sel.b)));
+  } else {
+    out.appendChild(document.createTextNode(text.slice(0, caret)));
+    var c = document.createElement("span");
+    c.className = "caret";
+    out.appendChild(c);
+    out.appendChild(document.createTextNode(text.slice(caret)));
+  }
+  renderStats();
+}
+function renderStats() {
+  var mins = startTs ? (Date.now() - startTs) / 60000 : 0;
+  $("sWpm").textContent = startTs && mins > 0 ? Math.round((typed / 5) / mins) : "–";
+  $("sCh").textContent = typed;
+  $("sBk").textContent = stats.backs;
+  $("sSec").textContent = stats.secs;
+  $("fShift").className = shiftState === 1 ? "show" : "";
+  $("fCaps").className = shiftState === 2 ? "show" : "";
+  $("fSym").className = layer === "sym" ? "show" : "";
+  $("fNumLayer").className = layer === "num" ? "show" : "";
+}
+
+/* ================= editing ops ================= */
+function commitChar(ch) {
+  if (!startTs) startTs = Date.now();
+  if (sel) { caret = sel.b; sel = null; }              // typing deselects, caret to selection end
+  if (/[a-z]/.test(ch) && shiftState > 0) {
+    ch = ch.toUpperCase();
+    if (shiftState === 1) shiftState = 0;
+  }
+  text = text.slice(0, caret) + ch + text.slice(caret);
+  caret++;
+  typed++;
+  buzz(8);
+  renderDoc();
+}
+function doSpace() {
+  var now = Date.now();
+  if (!sel && caret > 0 && text.charAt(caret - 1) === " " &&
+      now - lastSpaceTs < 600 && text.slice(0, caret).trim().length) {
+    text = text.slice(0, caret - 1) + ". " + text.slice(caret);   // double-space = period
+    caret++;
+    shiftState = shiftState === 2 ? 2 : 1;
+    buzz([8, 40, 8]);
+    renderDoc();
+  } else {
+    commitChar(" ");
+  }
+  lastSpaceTs = now;
+}
+function deleteRange(a, b) {
+  a = clamp(a, 0, text.length); b = clamp(b, a, text.length);
+  if (b <= a) return;
+  stats.backs += (b - a);
+  text = text.slice(0, a) + text.slice(b);
+  caret = a;
+  sel = null;
+  buzz([8, 30, 8]);
+  renderDoc();
+}
+function backspace() {
+  if (sel) { deleteRange(sel.a, sel.b); return; }
+  if (caret > 0) {
+    text = text.slice(0, caret - 1) + text.slice(caret);
+    caret--; stats.backs++;
+    buzz(8);
+    renderDoc();
+  }
+}
+function doShift() {
+  var now = Date.now();
+  if (now - lastShiftTs < 450) shiftState = 2;
+  else shiftState = shiftState === 0 ? 1 : 0;
+  lastShiftTs = now;
+  buzz(8);
+  renderStats();
+}
+
+/* ================= caret placement (tap the text) ================= */
+function indexFromPoint(x, y) {
+  var pos = null;
+  if (document.caretPositionFromPoint) {
+    var p = document.caretPositionFromPoint(x, y);
+    if (p) pos = { node: p.offsetNode, off: p.offset };
+  } else if (document.caretRangeFromPoint) {
+    var r = document.caretRangeFromPoint(x, y);
+    if (r) pos = { node: r.startContainer, off: r.startOffset };
+  }
+  if (!pos) return text.length;
+  var out = $("out");
+  if (!out.contains(pos.node)) return text.length;
+  var idx = 0, found = false;
+  (function walk(node) {
+    if (found) return;
+    if (node === pos.node) {
+      if (node.nodeType === 3) idx += pos.off;
+      else { // element: offset counts child nodes
+        for (var i = 0; i < pos.off && i < node.childNodes.length; i++) idx += lengthOf(node.childNodes[i]);
+      }
+      found = true;
+      return;
+    }
+    if (node.nodeType === 3) { idx += node.length; return; }
+    if (node.classList && node.classList.contains("caret")) return;
+    for (var i = 0; i < node.childNodes.length; i++) { walk(node.childNodes[i]); if (found) return; }
+  })(out);
+  function lengthOf(n) {
+    if (n.nodeType === 3) return n.length;
+    if (n.classList && n.classList.contains("caret")) return 0;
+    var s = 0; for (var i = 0; i < n.childNodes.length; i++) s += lengthOf(n.childNodes[i]);
+    return s;
+  }
+  return found ? idx : text.length;
+}
+$("out").addEventListener("pointerup", function (e) {
+  sel = null;
+  caret = clamp(indexFromPoint(e.clientX, e.clientY), 0, text.length);
+  buzz(5);
+  renderDoc();
+});
+
+/* ================= drag machinery ================= */
+/* modes: 'back' selects leftward from anchor; 'fwd' selects rightward from anchor;
+   'move' slides an existing selection window (signed offset). */
+function applyDrag(st) {
+  var v;
+  if (st.mode === "back") {
+    v = Math.floor(st.f);
+    sel = v > 0 ? { a: st.anchor - v, b: st.anchor } : null;
+  } else if (st.mode === "fwd") {
+    v = Math.floor(st.f);
+    sel = v > 0 ? { a: st.anchor, b: st.anchor + v } : null;
+  } else { // move
+    v = Math.round(st.f);
+    sel = { a: st.a0 + v, b: st.b0 + v };
+  }
+  if (v !== st.lastVal) { st.lastVal = v; buzz(4); renderDoc(); }
+}
+function dragClamp(st) {
+  if (st.mode === "back") st.f = clamp(st.f, 0, st.anchor);
+  else if (st.mode === "fwd") st.f = clamp(st.f, 0, text.length - st.anchor);
+  else st.f = clamp(st.f, -st.a0, text.length - st.b0);
+}
+
+/* ================= pointers ================= */
+var touches = {};
+board.addEventListener("pointerdown", function (e) {
+  e.preventDefault();
+  board.setPointerCapture(e.pointerId);
+  var k = keyAt(e.clientX, e.clientY);
+  var st = {
+    x0: e.clientX, y0: e.clientY, lastX: e.clientX, lastDx: 0, prevDx: undefined,
+    maxT: 0, key: k, long: false, timer: null,
+    del: false, mode: null, f: 0, anchor: 0, a0: 0, b0: 0, lastVal: null,
+    delTick: null, prevNeutral: true,
+    t0: Date.now(), sel0: sel ? { a: sel.a, b: sel.b } : null
+  };
+  touches[e.pointerId] = st;
+  if (k) k.el.classList.add("press");
+  if (editMode) return;                                // edit mode: selection happens on release
+  var alt = altOf(k);
+  if (alt) {
+    st.timer = setTimeout(function () {
+      st.long = true;
+      k.el.classList.add("longing");
+      k.el.querySelector(".pri").textContent = alt.toUpperCase();
+      buzz([10, 30, 10]);
+    }, HOLD_MS);
+  }
+  if (k && k.fn === "del") {                           // hold delete = repeat
+    st.timer = setTimeout(function () {
+      st.held = true;
+      st.rep = setInterval(function () { backspace(); }, 45);
+    }, HOLD_MS);
+  }
+  if (k && k.fn === "space") {                         // extra-long hold space = enter
+    st.timer = setTimeout(function () {
+      st.held = true;
+      commitChar("\n");
+      k.el.classList.add("press");
+      setTimeout(function () { k.el.classList.remove("press"); }, 120);
+    }, SPACE_HOLD_MS);
+  }
+});
+
+board.addEventListener("pointermove", function (e) {
+  var st = touches[e.pointerId];
+  if (!st) return;
+  var t = Math.hypot(e.clientX - st.x0, e.clientY - st.y0);
+  if (t > st.maxT) st.maxT = t;
+  if (st.maxT > TAP_T) {
+    if (st.timer) { clearTimeout(st.timer); st.timer = null; }
+    if (st.key) st.key.el.classList.remove("press");
+  }
+  var dx = e.clientX - st.x0, dy = e.clientY - st.y0;
+  var ddx = (st.prevDx === undefined) ? 0 : dx - st.prevDx;
+  st.prevDx = dx;
+  st.lastDx = dx;
+  st.lastX = e.clientX;
+
+  if (!st.del && st.maxT > GESTURE_T && Math.abs(dx) > Math.abs(dy)) {
+    st.del = true;
+    if (dx < 0) {                                      // select backward (extends existing)
+      st.mode = "back";
+      st.anchor = sel ? sel.b : caret;
+      st.f = sel ? (sel.b - sel.a) : 1;
+    } else if (sel) {                                  // slide the selection window
+      st.mode = "move";
+      st.a0 = sel.a; st.b0 = sel.b;
+      st.f = 0;
+    } else {                                           // select forward from caret
+      st.mode = "fwd";
+      st.anchor = caret;
+      st.f = 1;
+    }
+    dragClamp(st);
+    st.lastVal = null;
+    st.prevNeutral = leftOver(dx, e.clientX) <= 0 && rightOver(dx, e.clientX) <= 0;
+    applyDrag(st);
+    st.delTick = setInterval(function () {             // velocity integrator
+      var lo = leftOver(st.lastDx, st.lastX);
+      var ro = rightOver(st.lastDx, st.lastX);
+      var rate = 0;
+      if (st.mode === "back") rate = lo > 0 ? zoneRate(lo) : (ro > 0 ? -zoneRate(ro) : 0);
+      else rate = ro > 0 ? zoneRate(ro) : (lo > 0 ? -zoneRate(lo) : 0);  // fwd & move mirror
+      if (rate !== 0) {
+        st.f += rate * (DEL_TICK / 1000);
+        dragClamp(st);
+        applyDrag(st);
+      }
+    }, DEL_TICK);
+    return;
+  }
+
+  if (st.del) {
+    var neutral = leftOver(dx, e.clientX) <= 0 && rightOver(dx, e.clientX) <= 0;
+    // neutral band: 1:1 tracking; skip the delta on zone-boundary crossings (freeze)
+    if (neutral && st.prevNeutral) {
+      var d = ddx / DEL_STEP;
+      if (st.mode === "back") st.f -= d;               // leftward grows backward selection
+      else st.f += d;                                  // rightward grows fwd selection / slides window right
+      dragClamp(st);
+      applyDrag(st);
+    }
+    st.prevNeutral = neutral;
+  }
+});
+
+function end(e) {
+  var st = touches[e.pointerId];
+  if (!st) return;
+  delete touches[e.pointerId];
+  if (st.timer) clearTimeout(st.timer);
+  if (st.delTick) clearInterval(st.delTick);
+  if (st.key) {
+    st.key.el.classList.remove("press", "longing");
+    if (st.key.sec || st.key.num) st.key.el.querySelector(".pri").textContent = st.key.pri.toUpperCase();
+  }
+
+  var dx = e.clientX - st.x0, dy = e.clientY - st.y0;
+
+  if (editMode) { editTap(st); return; }               // edit mode consumes all board touches
+
+  if (st.rep) { clearInterval(st.rep); return; }       // hold-repeat already consumed this touch
+  if (st.held) return;                                 // space-hold enter already fired
+
+  // fast horizontal swipes move the cursor. With a selection (as it stood at
+  // touch-down), collapse to the swiped end; otherwise nudge one character.
+  if (st.maxT > TAP_T && (Date.now() - st.t0) < FLICK_MS && Math.abs(dx) > Math.abs(dy)) {
+    if (st.sel0) {
+      caret = dx < 0 ? st.sel0.a : st.sel0.b;
+      sel = null;
+    } else {
+      sel = null;                                      // discard anything the dying drag built
+      caret = clamp(caret + (dx < 0 ? -1 : 1), 0, text.length);
+    }
+    buzz(5);
+    renderDoc();
+    return;
+  }
+
+  if (st.del) {                                        // slow drag: selection persists as-is
+    if (sel && sel.b <= sel.a) sel = null;
+    buzz(sel ? [8, 30, 8] : 8);
+    renderDoc();
+    return;
+  }
+  if (st.maxT <= TAP_T) {                              // tap
+    if (!st.key) return;
+    if (st.key.fn) { st.key.fn === "space" ? doSpace() : backspace(); return; }
+    var alt = altOf(st.key);
+    if (st.long && alt) { stats.secs++; commitChar(alt); }
+    else commitChar(st.key.pri);
+    return;
+  }
+  if (st.maxT < GESTURE_T) {                           // slow flick band: forgiving sloppy tap
+    if (!st.key) return;
+    if (st.key.fn) { st.key.fn === "space" ? doSpace() : backspace(); return; }
+    commitChar(st.key.pri);
+    return;
+  }
+  // slow long vertical gestures
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    if (dy < 0) { doShift(); return; }
+    if (layer !== "alpha") { setLayer("alpha"); return; }   // down in any layer = back to alpha
+    var br = board.getBoundingClientRect();
+    setLayer(st.x0 < br.left + br.width / 2 ? "sym" : "num"); // alpha: left half = symbols, right = numbers
+  }
+}
+board.addEventListener("pointerup", end);
+board.addEventListener("pointercancel", function (e) {
+  var st = touches[e.pointerId];
+  if (st) {
+    if (st.timer) clearTimeout(st.timer);
+    if (st.rep) clearInterval(st.rep);
+    if (st.delTick) clearInterval(st.delTick);
+    if (st.key) {
+      st.key.el.classList.remove("press", "longing");
+      if (st.key.sec || st.key.num) st.key.el.querySelector(".pri").textContent = st.key.pri.toUpperCase();
+    }
+    renderDoc();
+  }
+  delete touches[e.pointerId];
+});
+document.addEventListener("contextmenu", function (e) {
+  if (e.target === board || board.contains(e.target)) e.preventDefault();
+});
+
+/* ================= layout editor ================= */
+function editTap(st) {
+  if (!st.key || st.key.fn || st.maxT > TAP_T) return; // letter keys only, taps only
+  var idx = keyEls.indexOf(st.key);
+  if (idx < 0) return;
+  if (editSel === null) {
+    editSel = idx;
+    st.key.el.classList.add("selkey");
+    buzz(8);
+  } else if (editSel === idx) {
+    st.key.el.classList.remove("selkey");
+    editSel = null;
+    buzz(8);
+  } else {
+    swapKeys(editSel, idx);
+  }
+}
+function swapKeys(i, j) {
+  var rows = currentRows(), nc = gridCols();
+  var r1 = Math.floor(i / nc), c1 = i % nc, r2 = Math.floor(j / nc), c2 = j % nc;
+  var tmp = rows[r1][c1];
+  rows[r1][c1] = rows[r2][c2];
+  rows[r2][c2] = tmp;
+  editSel = null;
+  persistLayouts();
+  buildBoard(layoutName);
+  buzz([8, 30, 8]);
+}
+
+/* ================= settings ================= */
+$("cHaptic").addEventListener("change", function () { haptics = this.checked; });
+$("bEdit").addEventListener("click", function () {
+  editMode = !editMode;
+  editSel = null;
+  this.className = editMode ? "on" : "";
+  board.classList.toggle("editing", editMode);
+  $("bRestore").style.display = editMode ? "" : "none";
+  buildBoard(layoutName);                              // clears any lingering selection highlight
+  buzz(8);
+});
+$("bRestore").addEventListener("click", function () {
+  if (!confirm("Restore this view to its default arrangement?")) return;
+  if (layer === "sym") SYM_ROWS = JSON.parse(JSON.stringify(DEFAULT_SETS.sym));
+  else if (layer === "num") NUM_ROWS = JSON.parse(JSON.stringify(DEFAULT_SETS.num));
+  else LAYOUTS[layoutName] = JSON.parse(JSON.stringify(DEFAULT_SETS.layouts[layoutName]));
+  editSel = null;
+  persistLayouts();
+  buildBoard(layoutName);
+});
+$("bLayout").addEventListener("click", function () {
+  var i = LAYOUT_ORDER.indexOf(layoutName);
+  layoutName = LAYOUT_ORDER[(i + 1) % LAYOUT_ORDER.length];
+  this.textContent = "lay: " + layoutName;
+  updateHelp();
+  buildBoard(layoutName);
+  buzz(8);
+});
+$("bNum").addEventListener("click", function () {
+  numpadOn = !numpadOn;
+  this.textContent = "123: " + (numpadOn ? "on" : "off");
+  board.classList.toggle("nonum", !numpadOn);
+  buzz(8);
+});
+$("bSwapFn").addEventListener("click", function () {
+  fnOrder.reverse();
+  layoutFnRow();
+  buzz(8);
+});
+$("bReset").addEventListener("click", function () {
+  text = SEED; caret = SEED.length; sel = null;
+  shiftState = 0; startTs = 0; typed = 0;
+  stats = { backs: 0, secs: 0 };
+  renderDoc();
+});
+
+function updateHelp() { $("layNote").innerHTML = LAYOUT_NOTES[layoutName]; }
+
+/* ================= init ================= */
+updateHelp();
+renderDoc();
+})();
+</script>
+</body>
+</html>
