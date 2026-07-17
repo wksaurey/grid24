@@ -14,3 +14,6 @@ keystore.properties
 # IDE droppings (project is CLI-built; nobody should commit these)
 .idea/
 *.iml
+
+# Per-project session retro (workflow convention: retros stay local)
+.claude/retro.md
