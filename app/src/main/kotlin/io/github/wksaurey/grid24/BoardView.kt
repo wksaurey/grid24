@@ -38,6 +38,9 @@ class BoardView(context: Context, private val engine: KeyboardEngine) : View(con
     }
 
     override fun onDraw(canvas: Canvas) {
+        // Full bounds incl. the nav-inset band: on API 35+ the system IME strip
+        // (chevron/globe/pill) is transparent and shows whatever we paint here.
+        canvas.drawColor(engine.backgroundColor)
         engine.render(canvas, width, height - bottomInset, resources.displayMetrics.density)
     }
 

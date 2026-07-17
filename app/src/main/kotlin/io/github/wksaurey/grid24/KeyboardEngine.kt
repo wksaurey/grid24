@@ -14,6 +14,11 @@ import android.view.inputmethod.EditorInfo
  */
 interface KeyboardEngine {
 
+    /** Board background color. The host paints it across the full window —
+     *  including the nav-inset band the transparent system strip sits over
+     *  (API 35+ edge-to-edge) — so appearance stays engine-owned. */
+    val backgroundColor: Int
+
     /** Board height in px for the given width. Called from BoardView.onMeasure. */
     fun measureHeight(widthPx: Int, density: Float): Int
 
@@ -44,6 +49,9 @@ interface KeyboardEngine {
      * SetSelection commands.
      */
     fun onSelectionUpdate(selStart: Int, selEnd: Int)
+
+    /** Input session ended / view hidden: cancel timers, drop all pointer state. */
+    fun onFinishInput()
 }
 
 /** What an engine asks the host to do against the current input field. */
@@ -57,6 +65,10 @@ sealed class EngineCommand {
     data class MoveCursor(val delta: Int) : EngineCommand()
 
     data class SetSelection(val a: Int, val b: Int) : EngineCommand()
+
+    /** Execute atomically inside beginBatchEdit/endBatchEdit (no flicker,
+     *  single onUpdateSelection) — e.g. double-space → delete space + ". ". */
+    data class Batch(val commands: List<EngineCommand>) : EngineCommand()
 }
 
 /**
@@ -65,6 +77,11 @@ sealed class EngineCommand {
  */
 enum class HapticKind { COMMIT, HOLD_FLIP, DRAG_TICK, CONFIRM, CANCEL }
 
+/** A cancellable scheduled action (see EngineHost.schedule). */
+interface Scheduled {
+    fun cancel()
+}
+
 /** Host services available to an engine. Implemented by Grid24Ime + BoardView. */
 interface EngineHost {
     fun execute(cmd: EngineCommand)
@@ -72,4 +89,17 @@ interface EngineHost {
 
     /** Ask for a redraw (engines have no View reference). */
     fun requestRender()
+
+    /**
+     * Run [action] after [delayMs] on the main thread. Timers are host-provided
+     * (not Handler-in-engine) so gesture timing stays JVM-testable; repeat loops
+     * self-chain by rescheduling inside their action.
+     */
+    fun schedule(delayMs: Long, action: () -> Unit): Scheduled
+
+    /**
+     * Up to [n] chars before the cursor, or null if unknown/no field. The one
+     * sanctioned field-content peek (CLAUDE.md: double-space period check).
+     */
+    fun textBeforeCursor(n: Int): CharSequence?
 }

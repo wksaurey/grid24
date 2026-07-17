@@ -1,8 +1,13 @@
 package io.github.wksaurey.grid24
 
 import android.inputmethodservice.InputMethodService
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.view.View
+import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 
 /**
  * The InputMethodService — the only Android entry point. Bridges the active
@@ -13,8 +18,10 @@ class Grid24Ime : InputMethodService(), EngineHost {
 
     private lateinit var engine: KeyboardEngine
     private var boardView: BoardView? = null
+    private val handler = Handler(Looper.getMainLooper())
 
-    // Field selection as last reported by the host app (onUpdateSelection).
+    // Field selection as last reported by the host app (onUpdateSelection),
+    // seeded from EditorInfo at session start.
     private var selStart = 0
     private var selEnd = 0
 
@@ -27,15 +34,54 @@ class Grid24Ime : InputMethodService(), EngineHost {
     private fun createEngine(): KeyboardEngine = Grid24Engine(this)
 
     override fun onCreateInputView(): View {
-        return BoardView(this, engine).also { boardView = it }
+        // API 35+: navigationBarColor is a documented no-op for gesture nav; the
+        // system IME strip (chevron/globe/pill) is TRANSPARENT and shows whatever
+        // we draw behind it (AOSP NavigationBarController sets background=null).
+        // So: extend the window edge-to-edge; BoardView paints the inset band.
+        // API 31-34: legacy path — the window fits insets and navigationBarColor
+        // still tints the strip. (Unexpected-Keyboard PR #848 gates identically:
+        // edge-to-edge below 35 has visual artifacts.)
+        window?.window?.let { w ->
+            if (Build.VERSION.SDK_INT >= 35) {
+                w.setDecorFitsSystemWindows(false)
+                w.attributes = w.attributes.apply { fitInsetsTypes = 0 }
+            } else {
+                @Suppress("DEPRECATION")
+                w.navigationBarColor = engine.backgroundColor
+            }
+            // Not deprecated; kills the scrim over 3-button nav.
+            w.isNavigationBarContrastEnforced = false
+            // Dark board -> light strip icons: clear the LIGHT_NAVIGATION flag.
+            w.insetsController?.setSystemBarsAppearance(
+                0, WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+            )
+        }
+        return BoardView(this, engine).also {
+            boardView = it
+            // Inset dispatch to a fresh IME view is unreliable (HeliBoard/UK both
+            // force it) — request explicitly so bottomInset is right on first show.
+            it.requestApplyInsets()
+        }
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        // Seed selection from the field — stale values from the previous field
+        // would misdirect the first cursor command (initialSelStart is -1 when
+        // the field doesn't report; treat as 0).
+        selStart = (info?.initialSelStart ?: 0).coerceAtLeast(0)
+        selEnd = (info?.initialSelEnd ?: 0).coerceAtLeast(0)
         // Fires on every field focus, repeatedly — the engine must reset
         // transient state (layer, gesture state) itself, every time.
         engine.onStartInput(info, restarting)
+        engine.onSelectionUpdate(selStart, selEnd)
         boardView?.invalidate()
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        // A running hold/repeat timer must never fire into a closed field.
+        engine.onFinishInput()
     }
 
     override fun onUpdateSelection(
@@ -53,6 +99,10 @@ class Grid24Ime : InputMethodService(), EngineHost {
 
     override fun execute(cmd: EngineCommand) {
         val ic = currentInputConnection ?: return // no focused field: no-op safely
+        executeOn(ic, cmd)
+    }
+
+    private fun executeOn(ic: InputConnection, cmd: EngineCommand) {
         when (cmd) {
             is EngineCommand.CommitText -> ic.commitText(cmd.text, 1)
             is EngineCommand.Backspace -> {
@@ -70,6 +120,14 @@ class Grid24Ime : InputMethodService(), EngineHost {
                 ic.setSelection(p, p)
             }
             is EngineCommand.SetSelection -> ic.setSelection(cmd.a, cmd.b)
+            is EngineCommand.Batch -> {
+                ic.beginBatchEdit()
+                try {
+                    cmd.commands.forEach { executeOn(ic, it) }
+                } finally {
+                    ic.endBatchEdit()
+                }
+            }
         }
     }
 
@@ -80,4 +138,15 @@ class Grid24Ime : InputMethodService(), EngineHost {
     override fun requestRender() {
         boardView?.invalidate()
     }
+
+    override fun schedule(delayMs: Long, action: () -> Unit): Scheduled {
+        val r = Runnable { action() }
+        handler.postDelayed(r, delayMs)
+        return object : Scheduled {
+            override fun cancel() = handler.removeCallbacks(r)
+        }
+    }
+
+    override fun textBeforeCursor(n: Int): CharSequence? =
+        currentInputConnection?.getTextBeforeCursor(n, 0)
 }
