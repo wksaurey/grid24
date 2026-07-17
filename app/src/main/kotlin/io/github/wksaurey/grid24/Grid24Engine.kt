@@ -390,7 +390,8 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         if (k.fn == "space") {                              // extra-long hold space = enter
             st.holdTask = host.schedule(Config.SPACE_HOLD_MS) {
                 st.held = true
-                commitChar("\n")
+                host.execute(EngineCommand.Enter)           // host resolves action-vs-newline
+                host.haptic(HapticKind.COMMIT)
             }
         }
     }

@@ -115,6 +115,21 @@ class Grid24Ime : InputMethodService(), EngineHost {
                     ic.deleteSurroundingText(1, 0)
                 }
             }
+            is EngineCommand.Enter -> {
+                val ei = currentInputEditorInfo
+                val action = ei?.let { it.imeOptions and EditorInfo.IME_MASK_ACTION }
+                    ?: EditorInfo.IME_ACTION_NONE
+                val enterActionSuppressed =
+                    ei != null && (ei.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0
+                if (action != EditorInfo.IME_ACTION_NONE &&
+                    action != EditorInfo.IME_ACTION_UNSPECIFIED &&
+                    !enterActionSuppressed
+                ) {
+                    ic.performEditorAction(action)   // search/go/send/done/next
+                } else {
+                    ic.commitText("\n", 1)           // multiline / plain fields
+                }
+            }
             is EngineCommand.MoveCursor -> {
                 val pos = (if (cmd.delta < 0) minOf(selStart, selEnd) else maxOf(selStart, selEnd)) + cmd.delta
                 val p = pos.coerceAtLeast(0)

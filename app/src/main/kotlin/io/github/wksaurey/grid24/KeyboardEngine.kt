@@ -61,6 +61,10 @@ sealed class EngineCommand {
     /** Deletes the selection if one exists, else one char before the cursor. */
     object Backspace : EngineCommand()
 
+    /** Enter, resolved host-side: fields declaring an IME action (search/go/
+     *  send/...) get performEditorAction; multiline/plain fields get "\n". */
+    object Enter : EngineCommand()
+
     /** Move the cursor by delta chars, collapsing any selection. */
     data class MoveCursor(val delta: Int) : EngineCommand()
 
