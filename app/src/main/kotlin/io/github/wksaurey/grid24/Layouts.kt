@@ -52,5 +52,20 @@ object Layouts {
         listOf(null, "0", "."),
     )
 
-    // SYM_ROWS / NUM_ROWS (symbol + calculator layers) land at M5.
+    /** Symbol layer (6×4): 24 primaries + 8 holds = every common symbol,
+     *  nothing left over. Verified complete; don't add or move glyphs. */
+    val SYM: List<List<KeyDef>> = listOf(
+        listOf(k("!"), k("@"), k("#"), k("$"), k("%"), k("^", "&")),
+        listOf(k("("), k(")"), k("["), k("]"), k("{"), k("}")),
+        listOf(k("'", "`"), k("\"", "~"), k(";"), k(":"), k("-"), k("_")),
+        listOf(k(",", "<"), k(".", ">"), k("?"), k("/", "\\"), k("=", "|"), k("+", "*")),
+    )
+
+    /** Number layer: 4-column calculator, operator column left, keypad right. */
+    val NUM: List<List<KeyDef>> = listOf(
+        listOf(k("/", "("), k("7"), k("8"), k("9")),
+        listOf(k("*", ")"), k("4"), k("5"), k("6")),
+        listOf(k("-", "%"), k("1"), k("2"), k("3")),
+        listOf(k("+", "^"), k(".", ":"), k("0", ","), k("=", "$")),
+    )
 }

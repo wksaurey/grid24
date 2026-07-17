@@ -77,8 +77,14 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         var holdFlipped = false    // hold fired: label shows the alt (prototype .longing)
     }
 
-    /** 24 grid keys, row-major — rebuilt on layout change. */
+    private enum class Layer { ALPHA, SYM, NUM }
+
+    /** Grid keys, row-major (24 on alpha/sym, 16 on num) — rebuilt on layer change. */
     private val keys = ArrayList<Key>()
+    private var layer = Layer.ALPHA
+
+    /** 6 columns on alpha/symbols; the calculator renders at 4 (wider keys). */
+    private fun cols(): Int = if (layer == Layer.NUM) 4 else 6
 
     /** Function row: prototype fnOrder default = DELETE left slot, SPACE right. */
     private val fnDel = Key("⌫ DELETE", null, null, fn = "del")
@@ -168,12 +174,27 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
     private fun buildKeys() {
         keys.clear()
-        Layouts.ALPHA.getValue(Layouts.DEFAULT).forEachIndexed { ri, row ->
+        val rows = when (layer) {
+            Layer.ALPHA -> Layouts.ALPHA.getValue(Layouts.DEFAULT)
+            Layer.SYM -> Layouts.SYM
+            Layer.NUM -> Layouts.NUM
+        }
+        rows.forEachIndexed { ri, row ->
             row.forEachIndexed { ci, def ->
-                val num = if (ci >= 3) Layouts.NUMGRID[ri][ci - 3] else null
+                // Positional digits ride the alpha layer only.
+                val num = if (layer == Layer.ALPHA && ci >= 3) Layouts.NUMGRID[ri][ci - 3] else null
                 keys.add(Key(def.pri, def.sec, num))
             }
         }
+        if (boardW > 0) layoutKeys(boardW, boardH)   // column count may have changed
+    }
+
+    private fun setLayer(l: Layer) {
+        if (layer == l) return
+        layer = l
+        buildKeys()
+        host.haptic(HapticKind.CONFIRM)
+        host.requestRender()
     }
 
     /** Hold resolution priority: merged secondary beats positional digit (sec || num). */
@@ -194,12 +215,13 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         val dead = Config.DEAD_ZONE * density
         val fnH = Config.FN_ROW_H * density
         val fnTop = h - dead - fnH
-        val cellW = w / 6f
+        val nc = cols()
+        val cellW = w / nc.toFloat()
         val cellH = fnTop / 4f
         val inset = Config.GAP * density / 2f
         keys.forEachIndexed { i, k ->
-            val r = i / 6
-            val c = i % 6
+            val r = i / nc
+            val c = i % nc
             k.rect.set(
                 c * cellW + inset, r * cellH + inset,
                 (c + 1) * cellW - inset, (r + 1) * cellH - inset,
@@ -221,10 +243,11 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         val dead = Config.DEAD_ZONE * density
         val fnTop = boardH - dead - Config.FN_ROW_H * density
         if (y >= boardH - dead) return null                       // dead zone
-        val col = ((x / (boardW / 6f)).toInt()).coerceIn(0, 5)
-        if (y >= fnTop) return fnOrder[if (col < 3) 0 else 1]
+        val nc = cols()
+        val col = ((x / (boardW / nc.toFloat())).toInt()).coerceIn(0, nc - 1)
+        if (y >= fnTop) return fnOrder[if (col < nc / 2) 0 else 1]
         val row = ((y / (fnTop / 4f)).toInt()).coerceIn(0, 3)
-        return keys[row * 6 + col]
+        return keys[row * nc + col]
     }
 
     /* ---------------- rendering ---------------- */
@@ -263,7 +286,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             shiftState > 0 -> k.pri.uppercase()
             else -> k.pri.lowercase()
         }
-        priPaint.textSize = 19f * density
+        priPaint.textSize = (if (layer == Layer.NUM) 23f else 19f) * density  // calculator keys read bigger
         priPaint.color = if (active) Palette.PRESS_INK else Palette.INK
         drawCentered(canvas, glyph, priPaint, k.rect)
 
@@ -589,8 +612,14 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         if (abs(dy) >= abs(dx)) {
             if (dy < 0) {
                 doShift(t)                                  // swipe up = shift / caps
+                return
             }
-            // Swipe down = layers (M5). No-op until then.
+            if (layer != Layer.ALPHA) {                     // down in any layer = back to alpha
+                setLayer(Layer.ALPHA)
+                return
+            }
+            // Alpha: start-x half decides — left = symbols, right = calculator.
+            setLayer(if (st.x0 < boardW / 2f) Layer.SYM else Layer.NUM)
         }
     }
 
@@ -608,11 +637,17 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     /* ---------------- session ---------------- */
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
-        // Reset transient state on every session, including restarts.
+        // Reset transient state on every session, including restarts. Layer
+        // memory deliberately doesn't survive sessions (password-field hygiene);
+        // inputType-driven auto-number is M6.
         clearPointers()
         shiftState = 0
         lastSpaceTs = 0
         lastShiftTs = 0
+        if (layer != Layer.ALPHA) {
+            layer = Layer.ALPHA
+            buildKeys()
+        }
         host.requestRender()
     }
 
