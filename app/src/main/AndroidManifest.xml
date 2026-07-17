@@ -3,7 +3,9 @@
     <!-- No permissions. Not even VIBRATE: haptics go through performHapticFeedback.
          INTERNET must never be added — a keyboard that provably cannot exfiltrate
          is the point (see docs/research/fdroid-distribution.md). -->
-    <application android:label="@string/app_name">
+    <application
+        android:label="@string/app_name"
+        android:allowBackup="false">
         <service
             android:name=".Grid24Ime"
             android:label="@string/ime_label"

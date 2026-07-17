@@ -4,5 +4,6 @@
     <subtype
         android:label="@string/subtype_en"
         android:imeSubtypeMode="keyboard"
-        android:languageTag="en-US" />
+        android:languageTag="en-US"
+        android:isAsciiCapable="true" />
 </input-method>

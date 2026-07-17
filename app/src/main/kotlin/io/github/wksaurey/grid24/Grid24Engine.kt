@@ -32,16 +32,23 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     /** Per-pointer state, keyed by stable pointer id — the prototype's `touches` map. */
     private val touches = HashMap<Int, PointerState>()
 
+    // Real display density, cached from measure/render (which always precede touch).
+    // The onPointer* callbacks deliberately don't carry density.
+    private var density = 3f
+
     private val bgPaint = Paint().apply { color = Color.parseColor("#191c22") }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#9a958a")
         textAlign = Paint.Align.CENTER
     }
 
-    override fun measureHeight(widthPx: Int, density: Float): Int =
-        (Config.BOARD_HEIGHT * density).toInt()
+    override fun measureHeight(widthPx: Int, density: Float): Int {
+        this.density = density
+        return (Config.BOARD_HEIGHT * density).toInt()
+    }
 
     override fun render(canvas: Canvas, widthPx: Int, heightPx: Int, density: Float) {
+        this.density = density
         canvas.drawRect(0f, 0f, widthPx.toFloat(), heightPx.toFloat(), bgPaint)
         labelPaint.textSize = 14f * density
         canvas.drawText("GRID24 · M0 · tap = a", widthPx / 2f, heightPx / 2f, labelPaint)
@@ -59,7 +66,6 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
     override fun onPointerUp(id: Int, x: Float, y: Float, t: Long) {
         val st = touches.remove(id) ?: return
-        val density = 3f // M0 shortcut; M1 threads real density into pointer handling
         if (st.maxTravel <= Config.TAP_T * density) {
             host.execute(EngineCommand.CommitText("a"))
             host.haptic(HapticKind.COMMIT)

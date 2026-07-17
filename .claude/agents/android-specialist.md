@@ -29,7 +29,7 @@ creative energy goes into the keyboards themselves.
 ## Pinned toolchain (deviate only with explicit approval)
 
 JDK 17 · AGP 9.2.0 · Gradle 9.4.1 (wrapper-pinned) · Kotlin 2.1.x · build-tools 36.0.0 ·
-compileSdk/targetSdk 37 (34 is an acceptable temporary hold if edge-to-edge enforcement fights
+compileSdk/targetSdk 36 (34 is an acceptable temporary hold if edge-to-edge enforcement fights
 the build-out; the insets pass is due at M6 regardless) · minSdk 31 · no Compose · no NDK ·
 version catalog in `gradle/libs.versions.toml` · project and SDK on ext4, never /mnt/c.
 
