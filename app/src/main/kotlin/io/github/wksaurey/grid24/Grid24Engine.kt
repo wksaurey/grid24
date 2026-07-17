@@ -41,7 +41,17 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         const val DEAD_ZONE = 18f        // dp — gap below board (nav inset stacks on top)
         const val GAP = 4f               // dp — visual gap between keys
         const val KEY_RADIUS = 10f       // dp
-        // DEL_* selection-drag physics land at M4.
+
+        /* Selection-drag hybrid physics (M4) — prototype values, dp unless noted. */
+        const val DEL_STEP = 22f         // dp/char — neutral (positional) zone resolution
+        const val DEL_BREAK = 280f       // dp left of touch: velocity-zone breakpoint
+        const val DEL_REV_BREAK = 120f   // dp right of touch: reverse-velocity breakpoint
+        const val DEL_EDGE = 60f         // dp: either screen edge forces its velocity zone
+        const val DEL_RATE_MIN = 2f      // chars/sec at zone boundary
+        const val DEL_RATE_MAX = 60f     // chars/sec cap
+        const val DEL_RATE_SPAN = 60f    // dp: quadratic ramp normalizer
+        const val DEL_RATE_SCALE = 18f   // quadratic ramp gain
+        const val DEL_TICK = 50L         // ms: velocity integrator period
     }
 
     /* Prototype CSS :root colors, verbatim. */
@@ -75,12 +85,15 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     private val fnSpace = Key("SPACE", null, null, fn = "space")
     private val fnOrder = arrayOf(fnDel, fnSpace)
 
+    private enum class DragMode { BACK, FWD, MOVE }
+
     private class PointerState(
         val x0: Float,
         val y0: Float,
         val t0: Long,
         val key: Key?,
         val sel0: IntRange?,       // selection as it stood at touch-down (prototype st.sel0)
+        val caret0: Int,           // caret at touch-down (drags don't move it; flicks use it)
     ) {
         var maxTravel = 0f
         var long = false           // hold fired (alt armed)
@@ -89,9 +102,25 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         var holdTask: Scheduled? = null
         var repTask: Scheduled? = null
 
+        /* Drag machinery (prototype st.del/mode/f/anchor/...). */
+        var del = false            // slow-horizontal drag engaged
+        var mode = DragMode.BACK
+        var f = 0f                 // fractional selection count / window offset
+        var anchor = 0
+        var a0 = 0                 // move mode: selection at engagement
+        var b0 = 0
+        var textLen = 0            // clamp bound, queried once at engagement
+        var lastVal: Int? = null
+        var prevDx: Float? = null
+        var lastDx = 0f
+        var lastX = 0f
+        var prevNeutral = true     // zone-boundary freeze guard
+        var tickTask: Scheduled? = null
+
         fun cancelTasks() {
             holdTask?.cancel(); holdTask = null
             repTask?.cancel(); repTask = null
+            tickTask?.cancel(); tickTask = null
         }
     }
 
@@ -310,7 +339,11 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
     override fun onPointerDown(id: Int, x: Float, y: Float, t: Long) {
         val k = keyAt(x, y)
-        val st = PointerState(x, y, t, k, if (selStart != selEnd) selStart..selEnd else null)
+        val st = PointerState(
+            x, y, t, k,
+            if (selStart != selEnd) selStart..selEnd else null,
+            selEnd,
+        )
         touches[id] = st
         if (k == null) return
         k.pressed = true
@@ -345,6 +378,76 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         st.repTask = host.schedule(Config.REPEAT_MS) { repeatBackspace(st) }
     }
 
+    /* ---- drag zone helpers (prototype leftOver/rightOver/zoneRate) ----
+     * leftOver > 0 near the left break/edge, rightOver > 0 near the right. */
+
+    private fun leftOver(dx: Float, x: Float): Float =
+        maxOf(-dx - Config.DEL_BREAK * density, (Config.DEL_EDGE * density - x) * 3f)
+
+    private fun rightOver(dx: Float, x: Float): Float =
+        maxOf(dx - Config.DEL_REV_BREAK * density, (x - (boardW - Config.DEL_EDGE * density)) * 3f)
+
+    private fun zoneRate(over: Float): Float {
+        val n = over / (Config.DEL_RATE_SPAN * density)
+        return minOf(Config.DEL_RATE_MAX, Config.DEL_RATE_MIN + n * n * Config.DEL_RATE_SCALE)
+    }
+
+    private fun dragClamp(st: PointerState) {
+        st.f = when (st.mode) {
+            DragMode.BACK -> st.f.coerceIn(0f, st.anchor.toFloat())
+            DragMode.FWD -> st.f.coerceIn(0f, (st.textLen - st.anchor).toFloat())
+            DragMode.MOVE -> st.f.coerceIn(-st.a0.toFloat(), (st.textLen - st.b0).toFloat())
+        }
+    }
+
+    /** Emit the selection for the current f; haptic tick per whole-char change. */
+    private fun applyDrag(st: PointerState) {
+        val v: Int
+        val a: Int
+        val b: Int
+        when (st.mode) {
+            DragMode.BACK -> {
+                v = kotlin.math.floor(st.f).toInt()
+                a = st.anchor - v; b = st.anchor
+            }
+            DragMode.FWD -> {
+                v = kotlin.math.floor(st.f).toInt()
+                a = st.anchor; b = st.anchor + v
+            }
+            DragMode.MOVE -> {
+                v = kotlin.math.round(st.f).toInt()
+                a = st.a0 + v; b = st.b0 + v
+            }
+        }
+        if (v != st.lastVal) {
+            st.lastVal = v
+            if (st.mode != DragMode.MOVE && v <= 0) {
+                // Fully reversed to zero = cancel: collapse at the anchor.
+                host.execute(EngineCommand.SetSelection(st.anchor, st.anchor))
+            } else {
+                host.execute(EngineCommand.SetSelection(a.coerceAtLeast(0), b))
+            }
+            host.haptic(HapticKind.DRAG_TICK)
+        }
+    }
+
+    /** Velocity integrator (prototype's delTick interval), self-chaining. */
+    private fun dragTick(st: PointerState) {
+        val lo = leftOver(st.lastDx, st.lastX)
+        val ro = rightOver(st.lastDx, st.lastX)
+        val rate = if (st.mode == DragMode.BACK) {
+            if (lo > 0) zoneRate(lo) else if (ro > 0) -zoneRate(ro) else 0f
+        } else { // fwd & move mirror
+            if (ro > 0) zoneRate(ro) else if (lo > 0) -zoneRate(lo) else 0f
+        }
+        if (rate != 0f) {
+            st.f += rate * (Config.DEL_TICK / 1000f)
+            dragClamp(st)
+            applyDrag(st)
+        }
+        st.tickTask = host.schedule(Config.DEL_TICK) { dragTick(st) }
+    }
+
     override fun onPointerMove(id: Int, x: Float, y: Float, t: Long) {
         val st = touches[id] ?: return
         val travel = hypot((x - st.x0).toDouble(), (y - st.y0).toDouble()).toFloat()
@@ -361,6 +464,57 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
                 st.key.pressed = false
                 host.requestRender()
             }
+        }
+
+        val dx = x - st.x0
+        val dy = y - st.y0
+        val ddx = st.prevDx?.let { dx - it } ?: 0f
+        st.prevDx = dx
+        st.lastDx = dx
+        st.lastX = x
+
+        // Engage the drag: slow horizontal past GESTURE_T (prototype pointermove).
+        if (!st.del && st.maxTravel > Config.GESTURE_T * density && abs(dx) > abs(dy)) {
+            st.del = true
+            // Clamp bound, queried once — text can't change during a drag. Fields
+            // that won't report length get a loose bound; setSelection past the
+            // real end is ignored by well-behaved editors and recovers on reverse.
+            st.textLen = host.textLength() ?: (maxOf(selStart, selEnd) + 100_000)
+            if (dx < 0) {                                  // select backward (extends existing)
+                st.mode = DragMode.BACK
+                st.anchor = if (selStart != selEnd) selEnd else st.caret0
+                st.f = if (selStart != selEnd) (selEnd - selStart).toFloat() else 1f
+            } else if (selStart != selEnd) {               // slide the selection window
+                st.mode = DragMode.MOVE
+                st.a0 = selStart
+                st.b0 = selEnd
+                st.f = 0f
+            } else {                                       // select forward from caret
+                st.mode = DragMode.FWD
+                st.anchor = st.caret0
+                st.f = 1f
+            }
+            dragClamp(st)
+            st.lastVal = null
+            st.prevNeutral = leftOver(dx, x) <= 0 && rightOver(dx, x) <= 0
+            applyDrag(st)
+            dragTick(st)                                   // starts the integrator
+            return
+        }
+
+        if (st.del) {
+            val neutral = leftOver(dx, x) <= 0 && rightOver(dx, x) <= 0
+            // Neutral band: 1:1 positional tracking; skip the delta on zone-boundary
+            // crossings (the prevNeutral freeze — retreating from a velocity burst
+            // must never mass-reverse the count).
+            if (neutral && st.prevNeutral) {
+                val d = ddx / (Config.DEL_STEP * density)
+                if (st.mode == DragMode.BACK) st.f -= d    // leftward grows backward selection
+                else st.f += d                             // rightward grows fwd / slides window
+                dragClamp(st)
+                applyDrag(st)
+            }
+            st.prevNeutral = neutral
         }
     }
 
@@ -382,15 +536,26 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         val gesturePx = Config.GESTURE_T * density
 
         // Fast horizontal swipes move the cursor. With a selection (as it stood
-        // at touch-down), collapse to the swiped end; otherwise nudge one char.
+        // at touch-down), collapse to the swiped end; otherwise nudge one char —
+        // discarding anything a dying (fast) drag built, from the pre-drag caret.
         if (st.maxTravel > tapPx && (t - st.t0) < Config.FLICK_MS && abs(dx) > abs(dy)) {
             if (st.sel0 != null) {
                 val pos = if (dx < 0) st.sel0.first else st.sel0.last
+                host.execute(EngineCommand.SetSelection(pos, pos))
+            } else if (st.del) {
+                val pos = (st.caret0 + if (dx < 0) -1 else 1).coerceAtLeast(0)
                 host.execute(EngineCommand.SetSelection(pos, pos))
             } else {
                 host.execute(EngineCommand.MoveCursor(if (dx < 0) -1 else 1))
             }
             host.haptic(HapticKind.DRAG_TICK)
+            return
+        }
+
+        // Slow drag released: the selection persists as it stands (deletion is
+        // the DELETE key only — nothing destructive lives on a swipe).
+        if (st.del) {
+            host.haptic(if (selStart != selEnd) HapticKind.CONFIRM else HapticKind.COMMIT)
             return
         }
 
@@ -420,14 +585,13 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             return
         }
 
-        // Slow long gestures past GESTURE_T.
+        // Slow long vertical gestures past GESTURE_T.
         if (abs(dy) >= abs(dx)) {
             if (dy < 0) {
                 doShift(t)                                  // swipe up = shift / caps
             }
             // Swipe down = layers (M5). No-op until then.
         }
-        // Slow horizontal past GESTURE_T = selection drags (M4). No-op until then.
     }
 
     override fun onPointerCancel(id: Int) {

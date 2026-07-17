@@ -102,4 +102,11 @@ interface EngineHost {
      * sanctioned field-content peek (CLAUDE.md: double-space period check).
      */
     fun textBeforeCursor(n: Int): CharSequence?
+
+    /**
+     * Total field text length, or null if the field won't say (some apps
+     * implement getExtractedText badly). Queried once per drag engagement to
+     * clamp selection bounds — never polled.
+     */
+    fun textLength(): Int?
 }

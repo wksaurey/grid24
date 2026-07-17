@@ -7,6 +7,7 @@ import android.os.Looper
 import android.view.View
 import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 
 /**
@@ -149,4 +150,7 @@ class Grid24Ime : InputMethodService(), EngineHost {
 
     override fun textBeforeCursor(n: Int): CharSequence? =
         currentInputConnection?.getTextBeforeCursor(n, 0)
+
+    override fun textLength(): Int? =
+        currentInputConnection?.getExtractedText(ExtractedTextRequest(), 0)?.text?.length
 }
