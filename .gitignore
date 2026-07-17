@@ -1,0 +1,16 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+
+# Machine-local SDK pointer
+local.properties
+
+# Signing — never commit keys or credentials
+keystore.properties
+*.jks
+*.keystore
+
+# IDE droppings (project is CLI-built; nobody should commit these)
+.idea/
+*.iml
