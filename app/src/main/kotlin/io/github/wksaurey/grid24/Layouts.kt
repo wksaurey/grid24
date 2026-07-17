@@ -8,7 +8,8 @@ package io.github.wksaurey.grid24
 data class KeyDef(val pri: String, val sec: String? = null) // sec = merged-key hold secondary
 
 object Layouts {
-    const val DEFAULT = "qwerty"
+    // Build-time layout selection (v1 mechanism per CLAUDE.md; runtime switching = M6).
+    const val DEFAULT = "optimal"
 
     private fun k(p: String, s: String? = null) = KeyDef(p, s)
 
