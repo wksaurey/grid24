@@ -1,0 +1,80 @@
+package io.github.wksaurey.grid24
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Canvas
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowInsets
+
+/**
+ * The single Canvas surface. Owns exactly two jobs: demux raw MotionEvents into
+ * the engine's per-pointer stream, and delegate drawing. No key hierarchy, no
+ * gesture logic — that is all engine-side (CLAUDE.md architecture).
+ *
+ * The bottom nav-bar inset is consumed here as real padding — this is the
+ * prototype's "dead-zone gap below the board", adapting to 3-button vs gesture nav.
+ */
+class BoardView(context: Context, private val engine: KeyboardEngine) : View(context) {
+
+    private var bottomInset = 0
+
+    init {
+        setOnApplyWindowInsetsListener { _, insets ->
+            val nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+            if (nav != bottomInset) {
+                bottomInset = nav
+                requestLayout()
+            }
+            insets
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val w = MeasureSpec.getSize(widthMeasureSpec)
+        val h = engine.measureHeight(w, resources.displayMetrics.density) + bottomInset
+        setMeasuredDimension(w, h)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        engine.render(canvas, width, height - bottomInset, resources.displayMetrics.density)
+    }
+
+    @SuppressLint("ClickableViewAccessibility") // keyboard surface; keys aren't child views
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val i = event.actionIndex
+                engine.onPointerDown(event.getPointerId(i), event.getX(i), event.getY(i), event.eventTime)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                // No action index on MOVE — every active pointer may have moved.
+                for (i in 0 until event.pointerCount) {
+                    engine.onPointerMove(event.getPointerId(i), event.getX(i), event.getY(i), event.eventTime)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                val i = event.actionIndex
+                engine.onPointerUp(event.getPointerId(i), event.getX(i), event.getY(i), event.eventTime)
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                for (i in 0 until event.pointerCount) {
+                    engine.onPointerCancel(event.getPointerId(i))
+                }
+            }
+        }
+        return true
+    }
+
+    fun performEngineHaptic(kind: HapticKind) {
+        val constant = when (kind) {
+            HapticKind.COMMIT -> HapticFeedbackConstants.KEYBOARD_TAP
+            HapticKind.HOLD_FLIP -> HapticFeedbackConstants.LONG_PRESS
+            HapticKind.DRAG_TICK -> HapticFeedbackConstants.CLOCK_TICK
+            HapticKind.CONFIRM -> HapticFeedbackConstants.CONFIRM
+            HapticKind.CANCEL -> HapticFeedbackConstants.REJECT
+        }
+        performHapticFeedback(constant)
+    }
+}

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Grid24</string>
+    <string name="ime_label">Grid24 Keyboard</string>
+    <string name="subtype_en">English (US)</string>
+</resources>

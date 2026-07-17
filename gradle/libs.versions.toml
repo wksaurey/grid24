@@ -1,0 +1,8 @@
+# Pinned toolchain — see docs/research/wsl2-android-toolchain.md for the version matrix.
+# Exact versions only (no dynamic ranges): F-Droid buildserver + reproducibility requirement.
+[versions]
+agp = "9.2.0"
+# Kotlin comes built-in with AGP 9+ — no standalone kotlin-android plugin.
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
