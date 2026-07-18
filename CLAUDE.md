@@ -10,6 +10,8 @@ Grid24 is a custom Android keyboard developed through extensive prototyping in a
 
 **Explicitly deferred to v2+ (do not build now):** settings UI, the tap-tap layout editor, persistence of layout edits, themes, landscape, one-handed mode, any prediction/autocorrect, clipboard features, Play Store anything.
 
+**Future wishlist (v3+, roadmap only — added 2026-07-17):** autocorrect, word prediction, swipe-to-type (glide typing), voice input, emoji support. These are opt-in additions layered on top, never dependencies — the "no autocorrect dependency" design premise stands, and the no-INTERNET / minimal-permission posture must survive them (on-device models only; voice input via the system speech IME hand-off, not a mic permission, unless deliberately re-decided).
+
 **Target device:** Pixel 10 Pro on GrapheneOS. `minSdk 31`, `targetSdk` current. Portrait-only is acceptable and preferred for v1. Distribution: locally signed APK, sideloaded. License: AGPL-3.0.
 
 ## Architecture
