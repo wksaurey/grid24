@@ -14,6 +14,15 @@ Grid24 is a custom Android keyboard developed through extensive prototyping in a
 
 **Clipboard design direction (decided 2026-07-19, build at v2):** an IN-KEYBOARD clipboard — internal local history store fed by (a) a `ClipboardManager.OnPrimaryClipChangedListener` (the default IME is exempt from Android 10+'s background clipboard-read restriction, so it captures copies made anywhere) and (b) Grid24's own stash-on-destroy, which then redirects here instead of clobbering the system clipboard. UI: clips rendered as a dynamic **layer** (same mechanism as sym/num — tap a clip = commit it, universal swipe-down exit). Conventions to keep: auto-expiry of unpinned clips, pinning, skip sensitive-flagged clips, local-only forever. FOSS references: FlorisBoard (most featureful), HeliBoard (simpler, closer to our v2 target).
 
+**Gesture backlog (2026-07-19 — approved for prototyping, NOT yet implemented).** Strategy: build the v2 settings page first as a *feature lab* — each of these ships behind a live toggle so variants can be flipped on/off on-device and judged by feel, instead of committing to any of them blind. The backlog:
+- **Hold SHIFT = caps lock** (the keyboard's own hold-idiom applied to the new SHIFT key; double-tap stays too).
+- **Hold ENTER = literal newline** (escape hatch now that tap-Enter performs the field's send/search action).
+- **Word-wise cursor flicks on the function row** (char-wise flicks stay on the letter rows — mirrors the letters-vs-fn-row drag split; needs a text peek to find word boundaries).
+- **Word-delete: quick flick left on DELETE** (destruction is DELETE's identity so the no-destructive-swipes pillar doesn't apply; the clipboard stash is the safety net). Possibly the Gboard-style hold-then-slide accelerating variant instead — decide by feel.
+- **Momentary vs latched layers** (swipe-down-and-hold = one-shot, plain swipe = latched as today) — Kolter specifically wants this for the future clipboard/copy-paste layer.
+- **Vertical drags** — in raw-key hosts: DPAD_UP/DOWN (terminal command history); in normal fields: line-jumping within paragraphs (no more looping the cursor all the way around). Line semantics through InputConnection are the hard part; the terminal half is nearly free.
+- **Rejected: diagonal swipes** — they'd tax the sloppiness forgiveness that makes fast typing survivable. Leave that space unclaimed permanently.
+
 **Macros (idea captured 2026-07-19 — mechanism deliberately undecided, iterate later):** user-defined text snippets committed as one action — email address, home address, etc. Candidate triggers, none chosen: 8vim-style swipe gestures, a dedicated macros layer (same layer mechanism as clipboard), or additional secondary "keys" on existing keys (a third hold tier or gesture-on-key). Constraints when designed: snippets stored local-only; suppressed in password fields; per-field-type sanity (don't offer the home address in a URL bar) is optional polish, not a dependency.
 
 **Target device:** Pixel 10 Pro on GrapheneOS. `minSdk 31`, `targetSdk` current. Portrait-only is acceptable and preferred for v1. Distribution: locally signed APK, sideloaded. License: AGPL-3.0.
