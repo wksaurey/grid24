@@ -8,7 +8,7 @@ Grid24 is a custom Android keyboard developed through extensive prototyping in a
 
 **In scope:** InputMethodService, the full board rendering, the complete gesture grammar, all four alpha layouts (hardcoded), symbol + number layers, merged-key/digit holds, shift/caps, double-space period, space-hold enter, delete hold-repeat, haptics, portrait only.
 
-**Explicitly deferred to v2+ (do not build now):** settings UI, the tap-tap layout editor, persistence of layout edits, themes, landscape, one-handed mode, any prediction/autocorrect, clipboard features, Play Store anything.
+**Explicitly deferred to v2+ (do not build now):** settings UI (including runtime layout selection — moved out of M6 2026-07-18; v1 ships with the build-time constant), the tap-tap layout editor, persistence of layout edits, themes, landscape, one-handed mode, any prediction/autocorrect, clipboard features, Play Store anything.
 
 **Future wishlist (v3+, roadmap only — added 2026-07-17):** autocorrect, word prediction, swipe-to-type (glide typing), voice input, emoji support. These are opt-in additions layered on top, never dependencies — the "no autocorrect dependency" design premise stands, and the no-INTERNET / minimal-permission posture must survive them (on-device models only; voice input via the system speech IME hand-off, not a mic permission, unless deliberately re-decided).
 
@@ -139,7 +139,7 @@ Known reality: some apps implement InputConnection badly. Test in at least: Foss
 4. **M3:** Quick swipes = cursor movement; shift/caps; double-space period.
 5. **M4:** Selection drag engine, all three modes + hybrid physics, wired to `setSelection`.
 6. **M5:** Layers — symbol + number, half-aware entry, universal exit, 4-column calculator rendering.
-7. **M6:** All four layouts switchable (minimal mechanism), inputType auto-number, polish pass against the prototype side-by-side.
+7. **M6:** inputType auto-number, polish pass against the prototype side-by-side. (Layout switching moved to the v2 settings menu, 2026-07-18 — v1 keeps the build-time constant in `Layouts.DEFAULT`.)
 
 Regression instrument: `keyboard-bench.html` (also in repo) — type the same phrases on the native build vs the prototype in Vanadium and compare WPM/error.
 
