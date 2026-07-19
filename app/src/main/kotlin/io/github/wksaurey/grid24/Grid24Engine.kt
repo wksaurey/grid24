@@ -30,6 +30,9 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     object Config {
         const val TAP_T = 18f            // dp — travel at or below this = tap
         const val GESTURE_T = 100f       // dp — below this, sloppy taps are forgiven as taps
+        const val DRAG_T = 60f           // dp — horizontal drag engagement (2026-07-17: split
+                                         // from GESTURE_T so slides register sooner; vertical
+                                         // gestures and tap forgiveness stay at GESTURE_T)
         const val HOLD_MS = 200L         // hold tier: merged/digit alt, delete repeat start
         const val FLICK_MS = 280L        // fast-vs-slow discriminator for cursor swipes
         const val SPACE_HOLD_MS = 550L   // extra-long hold on SPACE = enter
@@ -43,11 +46,15 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         const val KEY_RADIUS = 10f       // dp
 
         /* Selection-drag hybrid physics (M4) — prototype values, dp unless noted. */
-        const val DEL_STEP = 22f         // dp/char — neutral (positional) zone resolution
-        const val DEL_BREAK = 280f       // dp left of touch: velocity-zone breakpoint
+        const val DEL_STEP = 20f         // dp/char — neutral (positional) zone resolution
+                                         // (prototype 22; retuned on-device 2026-07-17)
+        const val DEL_BREAK = 220f       // dp from touch: velocity-zone breakpoint (prototype
+                                         // 280; retuned 2026-07-17 with DRAG_T=60 to keep the
+                                         // ~8-char positional runway of the original design)
         const val DEL_REV_BREAK = 120f   // dp right of touch: reverse-velocity breakpoint
         const val DEL_EDGE = 60f         // dp: either screen edge forces its velocity zone
-        const val DEL_RATE_MIN = 2f      // chars/sec at zone boundary
+        const val DEL_RATE_MIN = 10f     // chars/sec at zone boundary (prototype 2;
+                                         // retuned 2026-07-17 — felt too slow on entry)
         const val DEL_RATE_MAX = 60f     // chars/sec cap
         const val DEL_RATE_SPAN = 60f    // dp: quadratic ramp normalizer
         const val DEL_RATE_SCALE = 18f   // quadratic ramp gain
@@ -91,7 +98,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     private val fnSpace = Key("SPACE", null, null, fn = "space")
     private val fnOrder = arrayOf(fnDel, fnSpace)
 
-    private enum class DragMode { BACK, FWD, MOVE }
+    private enum class DragMode { BACK, FWD, MOVE, CURSOR }
 
     private class PointerState(
         val x0: Float,
@@ -181,8 +188,8 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         }
         rows.forEachIndexed { ri, row ->
             row.forEachIndexed { ci, def ->
-                // Positional digits ride the alpha layer only.
-                val num = if (layer == Layer.ALPHA && ci >= 3) Layouts.NUMGRID[ri][ci - 3] else null
+                // Positional holds (digits + punctuation) ride the alpha layer only.
+                val num = if (layer == Layer.ALPHA) Layouts.ALPHA_HOLDS[ri][ci] else null
                 keys.add(Key(def.pri, def.sec, num))
             }
         }
@@ -421,6 +428,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             DragMode.BACK -> st.f.coerceIn(0f, st.anchor.toFloat())
             DragMode.FWD -> st.f.coerceIn(0f, (st.textLen - st.anchor).toFloat())
             DragMode.MOVE -> st.f.coerceIn(-st.a0.toFloat(), (st.textLen - st.b0).toFloat())
+            DragMode.CURSOR -> st.f.coerceIn(-st.anchor.toFloat(), (st.textLen - st.anchor).toFloat())
         }
     }
 
@@ -442,14 +450,18 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
                 v = kotlin.math.round(st.f).toInt()
                 a = st.a0 + v; b = st.b0 + v
             }
+            DragMode.CURSOR -> {                       // caret slides, no selection
+                v = kotlin.math.round(st.f).toInt()
+                a = st.anchor + v; b = a
+            }
         }
         if (v != st.lastVal) {
             st.lastVal = v
-            if (st.mode != DragMode.MOVE && v <= 0) {
+            if ((st.mode == DragMode.BACK || st.mode == DragMode.FWD) && v <= 0) {
                 // Fully reversed to zero = cancel: collapse at the anchor.
                 host.execute(EngineCommand.SetSelection(st.anchor, st.anchor))
             } else {
-                host.execute(EngineCommand.SetSelection(a.coerceAtLeast(0), b))
+                host.execute(EngineCommand.SetSelection(a.coerceAtLeast(0), b.coerceAtLeast(0)))
             }
             host.haptic(HapticKind.DRAG_TICK)
         }
@@ -498,13 +510,22 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         st.lastX = x
 
         // Engage the drag: slow horizontal past GESTURE_T (prototype pointermove).
-        if (!st.del && st.maxTravel > Config.GESTURE_T * density && abs(dx) > abs(dy)) {
+        // Zone split (2026-07-17 deviation): letter-key starts move the CURSOR;
+        // selection drags live on the function row. A running delete-repeat never
+        // also engages a drag.
+        if (!st.del && !st.repeating &&
+            st.maxTravel > Config.DRAG_T * density && abs(dx) > abs(dy)
+        ) {
             st.del = true
             // Clamp bound, queried once — text can't change during a drag. Fields
             // that won't report length get a loose bound; setSelection past the
             // real end is ignored by well-behaved editors and recovers on reverse.
             st.textLen = host.textLength() ?: (maxOf(selStart, selEnd) + 100_000)
-            if (dx < 0) {                                  // select backward (extends existing)
+            if (st.key?.fn == null) {                      // letter keys / dead zone: cursor
+                st.mode = DragMode.CURSOR
+                st.anchor = st.caret0
+                st.f = 0f
+            } else if (dx < 0) {                           // select backward (extends existing)
                 st.mode = DragMode.BACK
                 st.anchor = if (selStart != selEnd) selEnd else st.caret0
                 st.f = if (selStart != selEnd) (selEnd - selStart).toFloat() else 1f

@@ -55,10 +55,11 @@ vbottom:  x⁄z c r y p j | g m t h d v | w l a o n s | f u e k⁄q i b
 On the alpha layer only, the right-half keys carry hold-digits in a phone-keypad shape, **assigned by grid position** regardless of which letter sits there:
 
 ```
-cols 3-5, row 0: 1 2 3 · row 1: 4 5 6 · row 2: 7 8 9 · row 3: (none) 0 .
+cols 3-5, row 0: 1 2 3 · row 1: 4 5 6 · row 2: 7 8 9 · row 3: , 0 .
+punctuation (2026-07-17 addition): row 3 col 1: ? · col 2: ' · col 3: ,
 ```
 
-Hold resolution priority: a key's merged secondary beats its positional digit (`sec || num`). Merged keys are always placed in the left half in all four layouts precisely so this conflict never occurs — preserve that invariant if layouts are ever edited.
+Hold resolution priority: a key's merged secondary beats its positional hold (`sec || num`). Known shadow: vbottom's `k⁄q` sits at row3-col3 and eats the comma hold there — acceptable while vbottom isn't the daily layout.
 
 ### Symbol layer (6×4) and number layer (4-column calculator)
 
@@ -71,6 +72,8 @@ The number layer renders at **4 columns** (wider keys) with the operator column 
 
 ## Gesture grammar — port exactly
 
+**Approved deviations from the prototype (Kolter, 2026-07-17)** — the prototype remains the spec everywhere else: (1) key glyphs render lowercase and flip uppercase with shift/caps (prototype drew uppercase always); (2) Enter resolves to the field's IME action (search/go/send) before falling back to `"\n"`; (3) slow horizontal drags on **letter keys move the cursor**; selection drags live on the **SPACE/DELETE row** only; (4) alpha bottom row carries positional punctuation holds (`?` `'` `,`).
+
 All discrimination is by travel distance and duration. **There is deliberately zero timing coordination between pointers** and nothing destructive lives on a swipe.
 
 | Gesture | Detection | Action |
@@ -78,9 +81,10 @@ All discrimination is by travel distance and duration. **There is deliberately z
 | Tap | travel ≤ TAP_T | commit key primary (or hold-secondary if hold fired) |
 | Hold | ≥ HOLD_MS stationary on a key with an alt | key label flips to alt + haptic; release commits alt |
 | Quick swipe ⇠/⇢ | travel > TAP_T, duration < FLICK_MS, horizontal-dominant | move cursor ±1 char; **if a selection existed at touch-down, collapse cursor to that end instead** |
-| Slow drag ⇠ | travel > GESTURE_T, slow, leftward | select backward from cursor (extends an existing selection — the ratchet) |
-| Slow drag ⇢, no selection | same, rightward | select forward from cursor |
-| Slow drag ⇢, selection exists | same | slide the whole selection window through the text (reversible) |
+| Slow drag ⇠/⇢ **on letter keys** | travel > GESTURE_T, slow, horizontal | **move the cursor continuously** (same hybrid physics, no selection) — 2026-07-17 deviation |
+| Slow drag ⇠ **on SPACE/DELETE row** | travel > GESTURE_T, slow, leftward | select backward from cursor (extends an existing selection — the ratchet) |
+| Slow drag ⇢ on fn row, no selection | same, rightward | select forward from cursor |
+| Slow drag ⇢ on fn row, selection exists | same | slide the whole selection window through the text (reversible) |
 | Swipe ↑ | slow, > GESTURE_T, vertical | shift (tap-again within 450ms ⇒ caps lock; tap while locked ⇒ off) |
 | Swipe ↓ on alpha | same, start-x in left half / right half | open symbol layer / open number layer |
 | Swipe ↓ on sym or num | anywhere | return to alpha (universal exit) |
@@ -102,11 +106,12 @@ The drag has a **neutral band** (1:1 positional tracking, DEL_STEP px per charac
 | FLICK_MS | 280 | fast-vs-slow is the real tap/drag discriminator; distance alone failed |
 | HOLD_MS | 200 | 350 felt laggy; 200 verified comfortable |
 | SPACE_HOLD_MS | 550 | must be far above HOLD_MS so the two hold tiers can't blur |
-| DEL_STEP | 22 px/char | positional zone resolution |
-| DEL_BREAK | 280 px from touch | leaves ~180px (~8 chars) of true positional runway past GESTURE_T |
+| DRAG_T | 60 | horizontal drag engagement — split from GESTURE_T 2026-07-17 so slides register sooner; vertical gestures + tap forgiveness still use GESTURE_T |
+| DEL_STEP | 20 px/char | positional zone resolution (prototype had 22; retuned on-device 2026-07-17) |
+| DEL_BREAK | 220 px from touch | ~160px (~8 chars) of positional runway past DRAG_T (prototype: 280 past GESTURE_T=100 — same runway, retuned 2026-07-17) |
 | DEL_REV_BREAK | 120 px | reverse-velocity breakpoint right of touch origin |
 | DEL_EDGE | 60 px | either screen edge forces the corresponding velocity zone |
-| DEL_RATE_MIN/MAX | 2 / 60 chars-sec | quadratic: MIN + (over/60)² × 18 |
+| DEL_RATE_MIN/MAX | 10 / 60 chars-sec | quadratic: MIN + (over/60)² × 18 (MIN was 2 in prototype; retuned on-device 2026-07-17) |
 | repeat delay/rate | 200ms / 45ms | delete hold-repeat |
 
 Convert css-px thresholds using density (`dp` ≈ css-px is close enough to start; expose as constants in one file for tuning).

@@ -41,16 +41,19 @@ object Layouts {
     )
 
     /**
-     * Alpha-layer positional digits: right-half keys (cols 3-5) carry hold-digits
-     * in a phone-keypad shape by GRID POSITION, independent of which letter sits
-     * there. Merged keys are always left-half in all four layouts precisely so
-     * sec-vs-num never conflicts — preserve that invariant when editing layouts.
+     * Alpha-layer positional holds, by GRID POSITION independent of which letter
+     * sits there: digits in a phone-keypad shape on the right half, punctuation
+     * on the bottom row (2026-07-17 addition — the prototype carried digits only).
+     * Merged-key secondaries beat positional holds (sec || hold), so a merged key
+     * sitting on a hold position shadows it: vbottom's k⁄q at row3-col3 eats the
+     * comma there. Acceptable while vbottom isn't the daily layout — relocate the
+     * comma if that changes.
      */
-    val NUMGRID: List<List<String?>> = listOf(
-        listOf("1", "2", "3"),
-        listOf("4", "5", "6"),
-        listOf("7", "8", "9"),
-        listOf(null, "0", "."),
+    val ALPHA_HOLDS: List<List<String?>> = listOf(
+        listOf(null, null, null, "1", "2", "3"),
+        listOf(null, null, null, "4", "5", "6"),
+        listOf(null, null, null, "7", "8", "9"),
+        listOf(null, "?", "'", ",", "0", "."),
     )
 
     /** Symbol layer (6×4): 24 primaries + 8 holds = every common symbol,
