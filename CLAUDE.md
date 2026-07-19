@@ -8,7 +8,7 @@ Grid24 is a custom Android keyboard developed through extensive prototyping in a
 
 **In scope:** InputMethodService, the full board rendering, the complete gesture grammar, all four alpha layouts (hardcoded), symbol + number layers, merged-key/digit holds, shift/caps, double-space period, space-hold enter, delete hold-repeat, haptics, portrait only.
 
-**Explicitly deferred to v2+ (do not build now):** settings UI (including runtime layout selection — moved out of M6 2026-07-18; v1 ships with the build-time constant), the tap-tap layout editor, persistence of layout edits, themes, landscape, one-handed mode, any prediction/autocorrect, clipboard features, Play Store anything.
+**Explicitly deferred to v2+ (do not build now):** settings UI (including runtime layout selection — moved out of M6 2026-07-18; v1 ships with the build-time constant — plus a fn-row swap or fully editable function keys, and an adjustable dead-zone/board-lift value), the tap-tap layout editor, persistence of layout edits, themes, landscape, one-handed mode, any prediction/autocorrect, clipboard features, Play Store anything.
 
 **Future wishlist (v3+, roadmap only — added 2026-07-17):** autocorrect, word prediction, swipe-to-type (glide typing), voice input, emoji support. These are opt-in additions layered on top, never dependencies — the "no autocorrect dependency" design premise stands, and the no-INTERNET / minimal-permission posture must survive them (on-device models only; voice input via the system speech IME hand-off, not a mic permission, unless deliberately re-decided).
 
@@ -33,7 +33,9 @@ Rationale: gesture grammar is behavior (code behind an interface); letter arrang
 
 ## The board
 
-Five rows: four key rows + a taller function row (SPACE spanning the left half, DELETE the right half by default — see `fnOrder`; a swap toggle exists in the prototype but defer its UI). Row heights: letter rows clamp(40px, 5.6vh, 52px) equivalent; function row ~25% taller; keep a dead-zone gap below the board so fast bottom-row typing doesn't graze Android gesture navigation.
+Five rows: four key rows + a taller function row (**DELETE spanning the left half, SPACE the right** — the prototype's `fnOrder` default, confirmed as Kolter's preference 2026-07-18; a swap toggle — or fully editable function keys — goes to the v2 settings page). Row heights: letter rows clamp(40px, 5.6vh, 52px) equivalent; function row ~25% taller.
+
+**Dead zone below the board (18dp + nav inset):** exists for comfort — typing at the very bottom edge of the glass is awkward, and raising the board noticeably improved feel — and because the system's IME strip (globe/hide-keyboard) lives in the nav-inset band beneath it. Hit-testing forgives low fn-row taps through the 18dp strip (they count as SPACE/DELETE, prototype behavior); the nav-inset band below is strictly the system's. The 18dp value is a candidate for the v2 settings page (adjustable board lift).
 
 ### Layouts (hardcoded for v1, exactly these)
 
@@ -46,7 +48,7 @@ vowels:   x⁄z v s u p j | k⁄q m i l c g | b h o e t w | d r a n f y
 vbottom:  x⁄z c r y p j | g m t h d v | w l a o n s | f u e k⁄q i b
 ```
 
-(Written row-by-row, 6 per row; `⁄` marks merged keys.) Default layout: `qwerty`. A layout cycle action exists in the prototype's settings row; for v1 expose it any minimal way (long-press on a corner of the board, or just a build-time constant) — a real settings screen is v2.
+(Written row-by-row, 6 per row; `⁄` marks merged keys.) Default layout: `optimal` (build-time constant `Layouts.DEFAULT`; was qwerty until Kolter switched daily-driving 2026-07-17). A layout cycle action exists in the prototype's settings row; for v1 expose it any minimal way (long-press on a corner of the board, or just a build-time constant) — a real settings screen is v2.
 
 `optimal` was produced by simulated annealing for two-thumb hand alternation (74.9% of English bigrams cross hands vs 53.7% for folded QWERTY), then hand-tuned. The optimizer script (`optimize_layout.py`) is in the repo for reference; not needed for the port.
 
@@ -72,7 +74,7 @@ The number layer renders at **4 columns** (wider keys) with the operator column 
 
 ## Gesture grammar — port exactly
 
-**Approved deviations from the prototype (Kolter, 2026-07-17)** — the prototype remains the spec everywhere else: (1) key glyphs render lowercase and flip uppercase with shift/caps (prototype drew uppercase always); (2) Enter resolves to the field's IME action (search/go/send) before falling back to `"\n"`; (3) slow horizontal drags on **letter keys move the cursor**; selection drags live on the **SPACE/DELETE row** only; (4) alpha bottom row carries positional punctuation holds (`?` `'` `,`).
+**Approved deviations from the prototype (Kolter, 2026-07-17/18)** — the prototype remains the spec everywhere else: (1) key glyphs render lowercase and flip uppercase with shift/caps (prototype drew uppercase always); (2) Enter resolves to the field's IME action (search/go/send) before falling back to `"\n"`; (3) slow horizontal drags on **letter keys move the cursor**; selection drags live on the **SPACE/DELETE row** only; (4) alpha bottom row carries positional punctuation holds (`?` `'` `,`); (5) **typing over a selection replaces it** (Android convention; the prototype collapsed-and-inserted, never destroying by typing) — as a recovery net, any selection destroyed by typing or DELETE is **stashed to the system clipboard first** (suppressed in password fields; groundwork for the planned clipboard features); (6) a running delete-repeat cannot co-engage a selection drag (the prototype allowed both simultaneously — treated as a prototype bug).
 
 All discrimination is by travel distance and duration. **There is deliberately zero timing coordination between pointers** and nothing destructive lives on a swipe.
 

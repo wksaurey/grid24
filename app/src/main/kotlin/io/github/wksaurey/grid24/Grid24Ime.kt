@@ -1,9 +1,12 @@
 package io.github.wksaurey.grid24
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.view.View
 import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
@@ -65,6 +68,10 @@ class Grid24Ime : InputMethodService(), EngineHost {
         }
     }
 
+    /** Never the fullscreen extract UI — the board stays a board even if the
+     *  device rotates (portrait-only is v1 scope, not a guarantee). */
+    override fun onEvaluateFullscreenMode(): Boolean = false
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         // Seed selection from the field — stale values from the previous field
@@ -91,9 +98,11 @@ class Grid24Ime : InputMethodService(), EngineHost {
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
-        selStart = newSelStart
-        selEnd = newSelEnd
-        engine.onSelectionUpdate(newSelStart, newSelEnd)
+        // Android may report reversed selections (start > end); normalize so the
+        // engine can assume ordered values everywhere.
+        selStart = minOf(newSelStart, newSelEnd)
+        selEnd = maxOf(newSelStart, newSelEnd)
+        engine.onSelectionUpdate(selStart, selEnd)
     }
 
     /* ---------------- EngineHost ---------------- */
@@ -105,9 +114,16 @@ class Grid24Ime : InputMethodService(), EngineHost {
 
     private fun executeOn(ic: InputConnection, cmd: EngineCommand) {
         when (cmd) {
-            is EngineCommand.CommitText -> ic.commitText(cmd.text, 1)
+            is EngineCommand.CommitText -> {
+                // Typing over a selection REPLACES it (Android convention; approved
+                // deviation — prototype inserted non-destructively). Safety net: the
+                // doomed selection is stashed to the system clipboard first.
+                stashSelectionToClipboard(ic)
+                ic.commitText(cmd.text, 1)
+            }
             is EngineCommand.Backspace -> {
                 if (selEnd != selStart) {
+                    stashSelectionToClipboard(ic)
                     ic.commitText("", 1) // clear the selection
                 } else {
                     // UTF-16 code units: emoji/surrogate pairs need 2 — v1 is
@@ -167,5 +183,32 @@ class Grid24Ime : InputMethodService(), EngineHost {
         currentInputConnection?.getTextBeforeCursor(n, 0)
 
     override fun textLength(): Int? =
-        currentInputConnection?.getExtractedText(ExtractedTextRequest(), 0)?.text?.length
+        currentInputConnection?.getExtractedText(ExtractedTextRequest(), 0)
+            ?.let { it.startOffset + it.text.length } // extract may be a window, not the whole text
+
+    /**
+     * Any command about to destroy a live selection stashes it to the system
+     * clipboard first — recovery net for accidental type-overs/deletes, and the
+     * seed of the planned clipboard features. Never in password fields.
+     */
+    private fun stashSelectionToClipboard(ic: InputConnection) {
+        if (selStart == selEnd || isPasswordField()) return
+        val doomed = ic.getSelectedText(0)
+        if (doomed.isNullOrEmpty()) return
+        getSystemService(ClipboardManager::class.java)
+            ?.setPrimaryClip(ClipData.newPlainText("Grid24", doomed))
+    }
+
+    private fun isPasswordField(): Boolean {
+        val type = currentInputEditorInfo?.inputType ?: return false
+        val variation = type and InputType.TYPE_MASK_VARIATION
+        return when (type and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            InputType.TYPE_CLASS_TEXT ->
+                variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                    variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                    variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+            else -> false
+        }
+    }
 }

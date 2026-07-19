@@ -14,15 +14,15 @@ import kotlin.math.hypot
  * The Grid24 keyboard engine — port of reference/grid24-proto.html (the
  * executable spec; when in doubt, open it and do what it does).
  *
- * M1+M2+M3 state: board renders (qwerty), geometry-correct hit-testing, taps
- * type; holds (merged secondaries, positional digits, delete repeat, space-hold
- * enter); quick-swipe cursor moves (selection-collapse aware); swipe-up
- * shift/caps; double-space period with auto-shift.
- * Still to come: selection-drag engine (M4), symbol/number layers (M5).
+ * v1-complete (M0–M6): board rendering + geometry-correct hit-testing, holds
+ * (merged secondaries, positional digits/punctuation, delete repeat, space-hold
+ * enter), quick-swipe cursor moves, swipe-up shift/caps, double-space period,
+ * the hybrid-physics drag engine (cursor on letter keys, selection on the fn
+ * row), symbol/calculator layers, numeric-field auto-calculator.
  *
- * Deliberate deviation from the prototype (user request 2026-07-17): key glyphs
- * render lowercase normally and uppercase while shift/caps is active — the
- * prototype always drew uppercase.
+ * Deliberate deviations from the prototype are listed in CLAUDE.md
+ * ("Approved deviations") — notably shift-tracking glyph case, the drag zone
+ * split, replace-on-type, and the 2026-07-17 constant retunes.
  */
 class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
@@ -248,9 +248,12 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     private fun keyAt(x: Float, y: Float): Key? {
         if (boardW == 0 || boardH == 0) return null
         if (x < 0 || x >= boardW || y < 0) return null
+        // The DEAD_ZONE strip is spacing, not a tap trap: low fn-row taps are
+        // forgiven down to boardH (prototype keyAt behavior). Below boardH is
+        // the nav-inset band — the system's globe/chevron strip, never ours.
+        if (y >= boardH) return null
         val dead = Config.DEAD_ZONE * density
         val fnTop = boardH - dead - Config.FN_ROW_H * density
-        if (y >= boardH - dead) return null                       // dead zone
         val nc = cols()
         val col = ((x / (boardW / nc.toFloat())).toInt()).coerceIn(0, nc - 1)
         if (y >= fnTop) return fnOrder[if (col < nc / 2) 0 else 1]
@@ -339,11 +342,15 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     }
 
     private fun doSpace(t: Long) {
-        val prevCharIsSpace = host.textBeforeCursor(1)?.toString() == " "
-        if (selStart == selEnd && prevCharIsSpace && t - lastSpaceTs < Config.DBL_SPACE_MS) {
+        val before = host.textBeforeCursor(48)
+        val prevCharIsSpace = before?.lastOrNull() == ' '
+        // Prototype guard: some non-whitespace must precede (48-char window
+        // approximates "anywhere before the cursor") — no ". " at field start.
+        val hasContentBefore = before?.isNotBlank() == true
+        if (selStart == selEnd && prevCharIsSpace && hasContentBefore &&
+            t - lastSpaceTs < Config.DBL_SPACE_MS
+        ) {
             // Double-space = period: replace the space with ". ", auto-shift next.
-            // (Prototype also guards "text before isn't all whitespace" — needs a
-            // fuller text read than the boundary offers; accepted fidelity gap.)
             host.execute(
                 EngineCommand.Batch(
                     listOf(EngineCommand.Backspace, EngineCommand.CommitText(". ")),
@@ -510,7 +517,8 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         st.lastDx = dx
         st.lastX = x
 
-        // Engage the drag: slow horizontal past GESTURE_T (prototype pointermove).
+        // Engage the drag: slow horizontal past DRAG_T (prototype used GESTURE_T;
+        // split 2026-07-17 so drags register sooner).
         // Zone split (2026-07-17 deviation): letter-key starts move the CURSOR;
         // selection drags live on the function row. A running delete-repeat never
         // also engages a drag.
@@ -683,9 +691,10 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     }
 
     override fun onSelectionUpdate(selStart: Int, selEnd: Int) {
+        // Includes echoes of our own SetSelection commands — harmless: drags
+        // snapshot anchor/f at engagement and never re-read these mid-drag.
         this.selStart = selStart
         this.selEnd = selEnd
-        // M4's drag engine adds the own-echo guard here.
     }
 
     override fun onFinishInput() {
