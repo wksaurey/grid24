@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -661,13 +662,21 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         // Reset transient state on every session, including restarts. Layer
         // memory deliberately doesn't survive sessions (password-field hygiene);
-        // inputType-driven auto-number is M6.
+        // numeric-class fields open straight onto the calculator (M6), and the
+        // universal swipe-down exit still works if the user wants letters.
         clearPointers()
         shiftState = 0
         lastSpaceTs = 0
         lastShiftTs = 0
-        if (layer != Layer.ALPHA) {
-            layer = Layer.ALPHA
+        val target = when (info?.inputType?.and(InputType.TYPE_MASK_CLASS)) {
+            InputType.TYPE_CLASS_NUMBER,
+            InputType.TYPE_CLASS_PHONE,
+            InputType.TYPE_CLASS_DATETIME,
+            -> Layer.NUM
+            else -> Layer.ALPHA
+        }
+        if (layer != target) {
+            layer = target
             buildKeys()
         }
         host.requestRender()
