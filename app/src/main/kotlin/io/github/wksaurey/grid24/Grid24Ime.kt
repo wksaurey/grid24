@@ -6,7 +6,10 @@ import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
+import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
@@ -79,6 +82,8 @@ class Grid24Ime : InputMethodService(), EngineHost {
         // the field doesn't report; treat as 0).
         selStart = (info?.initialSelStart ?: 0).coerceAtLeast(0)
         selEnd = (info?.initialSelEnd ?: 0).coerceAtLeast(0)
+        // QA breadcrumb: which InputConnection dialect is this host speaking?
+        Log.d("Grid24", "session: inputType=0x${Integer.toHexString(info?.inputType ?: -1)} raw=${rawKeyHost()}")
         // Fires on every field focus, repeatedly — the engine must reset
         // transient state (layer, gesture state) itself, every time.
         engine.onStartInput(info, restarting)
@@ -121,17 +126,19 @@ class Grid24Ime : InputMethodService(), EngineHost {
                 stashSelectionToClipboard(ic)
                 ic.commitText(cmd.text, 1)
             }
-            is EngineCommand.Backspace -> {
-                if (selEnd != selStart) {
+            is EngineCommand.Backspace -> when {
+                rawKeyHost() -> sendKey(ic, KeyEvent.KEYCODE_DEL) // terminals want the real key
+                selEnd != selStart -> {
                     stashSelectionToClipboard(ic)
                     ic.commitText("", 1) // clear the selection
-                } else {
-                    // UTF-16 code units: emoji/surrogate pairs need 2 — v1 is
-                    // English-only, revisit before shipping wider glyph sets.
-                    ic.deleteSurroundingText(1, 0)
                 }
+                // UTF-16 code units: emoji/surrogate pairs need 2 — v1 is
+                // English-only, revisit before shipping wider glyph sets.
+                else -> ic.deleteSurroundingText(1, 0)
             }
-            is EngineCommand.Enter -> {
+            is EngineCommand.Enter -> if (rawKeyHost()) {
+                sendKey(ic, KeyEvent.KEYCODE_ENTER)
+            } else {
                 val ei = currentInputEditorInfo
                 val action = ei?.let { it.imeOptions and EditorInfo.IME_MASK_ACTION }
                     ?: EditorInfo.IME_ACTION_NONE
@@ -146,12 +153,17 @@ class Grid24Ime : InputMethodService(), EngineHost {
                     ic.commitText("\n", 1)           // multiline / plain fields
                 }
             }
-            is EngineCommand.MoveCursor -> {
+            is EngineCommand.MoveCursor -> if (rawKeyHost()) {
+                // Terminals understand arrow keys, not setSelection.
+                val key = if (cmd.delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
+                repeat(kotlin.math.abs(cmd.delta)) { sendKey(ic, key) }
+            } else {
                 val pos = (if (cmd.delta < 0) minOf(selStart, selEnd) else maxOf(selStart, selEnd)) + cmd.delta
                 val p = pos.coerceAtLeast(0)
                 ic.setSelection(p, p)
             }
-            is EngineCommand.SetSelection -> ic.setSelection(cmd.a, cmd.b)
+            is EngineCommand.SetSelection ->
+                if (!rawKeyHost()) ic.setSelection(cmd.a, cmd.b) // meaningless in terminals
             is EngineCommand.Batch -> {
                 ic.beginBatchEdit()
                 try {
@@ -197,6 +209,16 @@ class Grid24Ime : InputMethodService(), EngineHost {
         if (doomed.isNullOrEmpty()) return
         getSystemService(ClipboardManager::class.java)
             ?.setPrimaryClip(ClipData.newPlainText("Grid24", doomed))
+    }
+
+    /** TYPE_NULL host (Termux etc.): the old "send me raw key events" contract. */
+    private fun rawKeyHost(): Boolean =
+        currentInputEditorInfo?.inputType == InputType.TYPE_NULL
+
+    private fun sendKey(ic: InputConnection, keyCode: Int) {
+        val now = SystemClock.uptimeMillis()
+        ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
+        ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
     }
 
     private fun isPasswordField(): Boolean {

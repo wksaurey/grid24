@@ -142,6 +142,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     private val touches = HashMap<Int, PointerState>()
 
     /* Keyboard-side state (prototype globals). */
+    private var rawKeyMode = false // TYPE_NULL host (terminal): arrows, no selection
     private var shiftState = 0     // 0 none, 1 next, 2 lock
     private var lastShiftTs = 0L
     private var lastSpaceTs = 0L
@@ -347,7 +348,8 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         // Prototype guard: some non-whitespace must precede (48-char window
         // approximates "anywhere before the cursor") — no ". " at field start.
         val hasContentBefore = before?.isNotBlank() == true
-        if (selStart == selEnd && prevCharIsSpace && hasContentBefore &&
+        // Never in raw-key hosts: injecting ". " into a shell command is hostile.
+        if (!rawKeyMode && selStart == selEnd && prevCharIsSpace && hasContentBefore &&
             t - lastSpaceTs < Config.DBL_SPACE_MS
         ) {
             // Double-space = period: replace the space with ". ", auto-shift next.
@@ -432,6 +434,9 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     }
 
     private fun dragClamp(st: PointerState) {
+        // Raw-key hosts: no trustworthy text bounds (Termux reports only the
+        // text before the cursor) and arrows self-limit at line edges anyway.
+        if (rawKeyMode) return
         st.f = when (st.mode) {
             DragMode.BACK -> st.f.coerceIn(0f, st.anchor.toFloat())
             DragMode.FWD -> st.f.coerceIn(0f, (st.textLen - st.anchor).toFloat())
@@ -464,8 +469,12 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             }
         }
         if (v != st.lastVal) {
+            val step = v - (st.lastVal ?: 0)
             st.lastVal = v
-            if ((st.mode == DragMode.BACK || st.mode == DragMode.FWD) && v <= 0) {
+            if (rawKeyMode) {
+                // Terminal host: relative arrow-key steps, not absolute positions.
+                if (step != 0) host.execute(EngineCommand.MoveCursor(step))
+            } else if ((st.mode == DragMode.BACK || st.mode == DragMode.FWD) && v <= 0) {
                 // Fully reversed to zero = cancel: collapse at the anchor.
                 host.execute(EngineCommand.SetSelection(st.anchor, st.anchor))
             } else {
@@ -529,8 +538,11 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             // Clamp bound, queried once — text can't change during a drag. Fields
             // that won't report length get a loose bound; setSelection past the
             // real end is ignored by well-behaved editors and recovers on reverse.
-            st.textLen = host.textLength() ?: (maxOf(selStart, selEnd) + 100_000)
-            if (st.key?.fn == null) {                      // letter keys / dead zone: cursor
+            // Raw-key hosts skip the query (their extract lies; clamp is off anyway).
+            st.textLen = if (rawKeyMode) 0 else host.textLength() ?: (maxOf(selStart, selEnd) + 100_000)
+            if (st.key?.fn == null || rawKeyMode) {        // letter keys / dead zone: cursor.
+                                                           // Raw hosts: fn-row drags too —
+                                                           // terminals have no selection.
                 st.mode = DragMode.CURSOR
                 st.anchor = st.caret0
                 st.f = 0f
@@ -593,7 +605,9 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         // at touch-down), collapse to the swiped end; otherwise nudge one char —
         // discarding anything a dying (fast) drag built, from the pre-drag caret.
         if (st.maxTravel > tapPx && (t - st.t0) < Config.FLICK_MS && abs(dx) > abs(dy)) {
-            if (st.sel0 != null) {
+            if (rawKeyMode) {
+                host.execute(EngineCommand.MoveCursor(if (dx < 0) -1 else 1))
+            } else if (st.sel0 != null) {
                 val pos = if (dx < 0) st.sel0.first else st.sel0.last
                 host.execute(EngineCommand.SetSelection(pos, pos))
             } else if (st.del) {
@@ -673,6 +687,9 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         // numeric-class fields open straight onto the calculator (M6), and the
         // universal swipe-down exit still works if the user wants letters.
         clearPointers()
+        // TYPE_NULL = "send me raw key events" (terminals: Termux). Selection
+        // and setSelection-based cursor movement are meaningless there.
+        rawKeyMode = info != null && info.inputType == InputType.TYPE_NULL
         shiftState = 0
         lastSpaceTs = 0
         lastShiftTs = 0
