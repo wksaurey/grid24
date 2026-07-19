@@ -12,6 +12,10 @@ Grid24 is a custom Android keyboard developed through extensive prototyping in a
 
 **Future wishlist (v3+, roadmap only — added 2026-07-17):** autocorrect, word prediction, swipe-to-type (glide typing), voice input, emoji support. These are opt-in additions layered on top, never dependencies — the "no autocorrect dependency" design premise stands, and the no-INTERNET / minimal-permission posture must survive them (on-device models only; voice input via the system speech IME hand-off, not a mic permission, unless deliberately re-decided).
 
+**Clipboard design direction (decided 2026-07-19, build at v2):** an IN-KEYBOARD clipboard — internal local history store fed by (a) a `ClipboardManager.OnPrimaryClipChangedListener` (the default IME is exempt from Android 10+'s background clipboard-read restriction, so it captures copies made anywhere) and (b) Grid24's own stash-on-destroy, which then redirects here instead of clobbering the system clipboard. UI: clips rendered as a dynamic **layer** (same mechanism as sym/num — tap a clip = commit it, universal swipe-down exit). Conventions to keep: auto-expiry of unpinned clips, pinning, skip sensitive-flagged clips, local-only forever. FOSS references: FlorisBoard (most featureful), HeliBoard (simpler, closer to our v2 target).
+
+**Macros (idea captured 2026-07-19 — mechanism deliberately undecided, iterate later):** user-defined text snippets committed as one action — email address, home address, etc. Candidate triggers, none chosen: 8vim-style swipe gestures, a dedicated macros layer (same layer mechanism as clipboard), or additional secondary "keys" on existing keys (a third hold tier or gesture-on-key). Constraints when designed: snippets stored local-only; suppressed in password fields; per-field-type sanity (don't offer the home address in a URL bar) is optional polish, not a dependency.
+
 **Target device:** Pixel 10 Pro on GrapheneOS. `minSdk 31`, `targetSdk` current. Portrait-only is acceptable and preferred for v1. Distribution: locally signed APK, sideloaded. License: AGPL-3.0.
 
 ## Architecture
