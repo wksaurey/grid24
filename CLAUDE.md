@@ -87,7 +87,7 @@ The number layer renders at **4 columns** (wider keys) with the operator column 
 
 ## Gesture grammar — port exactly
 
-**Approved deviations from the prototype (Kolter, 2026-07-17/18)** — the prototype remains the spec everywhere else: (1) key glyphs render lowercase and flip uppercase with shift/caps (prototype drew uppercase always); (2) Enter resolves to the field's IME action (search/go/send) before falling back to `"\n"`; (3) slow horizontal drags on **letter keys move the cursor**; selection drags live on the **SPACE/DELETE row** only; (4) alpha bottom row carries positional punctuation holds (`?` `'` `,`); (5) **typing over a selection replaces it** (Android convention; the prototype collapsed-and-inserted, never destroying by typing) — as a recovery net, any selection destroyed by typing or DELETE is **stashed to the system clipboard first** (suppressed in password fields; groundwork for the planned clipboard features); (6) a running delete-repeat cannot co-engage a selection drag (the prototype allowed both simultaneously — treated as a prototype bug).
+**Approved deviations from the prototype (Kolter, 2026-07-17/18)** — the prototype remains the spec everywhere else: (1) key glyphs render lowercase and flip uppercase with shift/caps (prototype drew uppercase always); (2) Enter resolves to the field's IME action (search/go/send) before falling back to `"\n"`; (3) slow horizontal drags on **letter keys move the cursor**; selection drags live on the **SPACE/DELETE row** only; (4) alpha bottom row carries positional punctuation holds (`?` `'` `,`); (5) **typing over a selection replaces it** (Android convention; the prototype collapsed-and-inserted, never destroying by typing) — as a recovery net, any selection destroyed by typing or DELETE is **stashed to the system clipboard first** (suppressed in password fields; groundwork for the planned clipboard features); (6) a running delete-repeat cannot co-engage a selection drag (the prototype allowed both simultaneously — treated as a prototype bug); (7) **caps lock = hold the SHIFT key** (gesture-backlog item promoted 2026-07-19); the 450ms double-shift window is gone everywhere — note the classic 2-key fn row therefore has no caps path while toggled on.
 
 All discrimination is by travel distance and duration. **There is deliberately zero timing coordination between pointers** and nothing destructive lives on a swipe.
 
@@ -100,7 +100,7 @@ All discrimination is by travel distance and duration. **There is deliberately z
 | Slow drag ⇠ **on SPACE/DELETE row** | travel > GESTURE_T, slow, leftward | select backward from cursor (extends an existing selection — the ratchet) |
 | Slow drag ⇢ on fn row, no selection | same, rightward | select forward from cursor |
 | Slow drag ⇢ on fn row, selection exists | same | slide the whole selection window through the text (reversible) |
-| Swipe ↑ | slow, > GESTURE_T, vertical | shift (tap-again within 450ms ⇒ caps lock; tap while locked ⇒ off) |
+| Swipe ↑ | slow, > GESTURE_T, vertical | shift toggle (caps lock = **hold the SHIFT key**, 2026-07-19 deviation — the 450ms double-shift window is removed; shift/swipe while locked ⇒ off) |
 | Swipe ↓ on alpha | same, start-x in left half / right half | open symbol layer / open number layer |
 | Swipe ↓ on sym or num | anywhere | return to alpha (universal exit) |
 | SPACE tap | — | space; **double-space within 600ms ⇒ delete the space, insert ". ", auto-shift next** |

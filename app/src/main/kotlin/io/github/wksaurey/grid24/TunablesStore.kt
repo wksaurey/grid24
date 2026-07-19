@@ -15,6 +15,9 @@ object TunablesStore {
     const val K_THEME = "theme"
     const val K_CORNER_STYLE = "corner_style"
     const val K_FN_ROW = "fn_row_keys"
+    const val K_AUTO_CAPS = "auto_caps"
+    const val K_ROW_H = "row_height"
+    const val K_FN_ROW_H = "fn_row_height"
     const val K_TAP_T = "tap_t"
     const val K_GESTURE_T = "gesture_t"
     const val K_DRAG_T = "drag_t"
@@ -36,6 +39,9 @@ object TunablesStore {
             theme = p.getString(K_THEME, d.theme) ?: d.theme,
             cornerStyle = p.getString(K_CORNER_STYLE, d.cornerStyle) ?: d.cornerStyle,
             fnRowKeys = p.getBoolean(K_FN_ROW, d.fnRowKeys),
+            autoCaps = p.getBoolean(K_AUTO_CAPS, d.autoCaps),
+            rowHeight = p.getInt(K_ROW_H, d.rowHeight.toInt()).toFloat(),
+            fnRowHeight = p.getInt(K_FN_ROW_H, d.fnRowHeight.toInt()).toFloat(),
             tapT = p.getInt(K_TAP_T, d.tapT.toInt()).toFloat(),
             gestureT = p.getInt(K_GESTURE_T, d.gestureT.toInt()).toFloat(),
             dragT = p.getInt(K_DRAG_T, d.dragT.toInt()).toFloat(),

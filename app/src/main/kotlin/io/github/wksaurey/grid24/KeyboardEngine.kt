@@ -112,6 +112,11 @@ interface EngineHost {
      */
     fun textBeforeCursor(n: Int): CharSequence?
 
+    /** True when a sentence-cap applies at the cursor right now (field start,
+     *  after terminal punctuation + space). Host answers via getCursorCapsMode;
+     *  always false in password fields / fields without an InputConnection. */
+    fun autoCapsNow(): Boolean
+
     /**
      * Total field text length, or null if the field won't say (some apps
      * implement getExtractedText badly). Queried once per drag engagement to

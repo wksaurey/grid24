@@ -100,6 +100,10 @@ class SettingsActivity : Activity() {
         toggle("4-key row: SHIFT · DELETE · SPACE · ENTER", TunablesStore.K_FN_ROW, Tunables().fnRowKeys)
         desc("Off = classic two-key row (DELETE / SPACE). The swipe-up-shift and hold-space-enter gestures work either way.")
 
+        header("Typing")
+        toggle("Auto-capitalize sentences", TunablesStore.K_AUTO_CAPS, Tunables().autoCaps)
+        desc("Arms shift at the start of a field and after . ! ? + space. Only auto-armed shift auto-disarms — your manual shift/caps is never touched. Off in password fields and terminals.")
+
         header("Tap & gesture thresholds — dp")
         slider("Tap travel limit (TAP_T)", TunablesStore.K_TAP_T, 8, 32, 1, Tunables().tapT.toInt(),
             "How far a finger may wobble and still count as a tap.")
@@ -121,6 +125,10 @@ class SettingsActivity : Activity() {
             "Top speed when pushed deep into the zone or pinned at a screen edge.")
 
         header("Board")
+        slider("Key row height — dp (LETTER_ROW_H)", TunablesStore.K_ROW_H, 40, 64, 1, Tunables().rowHeight.toInt(),
+            "Height of the four letter rows.")
+        slider("Function row height — dp (FN_ROW_H)", TunablesStore.K_FN_ROW_H, 44, 84, 2, Tunables().fnRowHeight.toInt(),
+            "Height of the SHIFT/DELETE/SPACE/ENTER row.")
         slider("Dead zone / board lift (DEAD_ZONE)", TunablesStore.K_DEAD_ZONE, 0, 40, 2, Tunables().deadZone.toInt(),
             "Empty gap below the function row — lifts the whole board off the bottom edge. Taps landing in it still count as bottom-row keys.")
 

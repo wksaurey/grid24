@@ -40,7 +40,6 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         const val SPACE_HOLD_MS = 550L   // extra-long hold on SPACE = enter
         const val REPEAT_MS = 45L        // delete hold-repeat rate
         const val DBL_SPACE_MS = 600L    // double-space period window
-        const val SHIFT_DBL_MS = 450L    // shift-again-within = caps lock
         const val LETTER_ROW_H = 48f     // dp — prototype clamp(40px, 5.6vh, 52px) midpoint
         const val FN_ROW_H = 60f         // dp — function row ~25% taller
         const val DEAD_ZONE = 18f        // dp — gap below board (nav inset stacks on top)
@@ -160,7 +159,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     /* Keyboard-side state (prototype globals). */
     private var rawKeyMode = false // TYPE_NULL host (terminal): arrows, no selection
     private var shiftState = 0     // 0 none, 1 next, 2 lock
-    private var lastShiftTs = 0L
+    private var autoShifted = false // shift was ARMED BY AUTO-CAPS (can auto-disarm)
     private var lastSpaceTs = 0L
     private var selStart = 0
     private var selEnd = 0
@@ -231,7 +230,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
     override fun measureHeight(widthPx: Int, density: Float): Int {
         this.density = density
-        return ((4 * Config.LETTER_ROW_H + Config.FN_ROW_H + tun.deadZone) * density).toInt()
+        return ((4 * tun.rowHeight + tun.fnRowHeight + tun.deadZone) * density).toInt()
     }
 
     /** Cell layout mirrors the prototype's keyAt(): 6 equal columns; letter rows
@@ -240,7 +239,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         boardW = w
         boardH = h
         val dead = tun.deadZone * density
-        val fnH = Config.FN_ROW_H * density
+        val fnH = tun.fnRowHeight * density
         val fnTop = h - dead - fnH
         val nc = cols()
         val cellW = w / nc.toFloat()
@@ -275,7 +274,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         // the nav-inset band — the system's globe/chevron strip, never ours.
         if (y >= boardH) return null
         val dead = tun.deadZone * density
-        val fnTop = boardH - dead - Config.FN_ROW_H * density
+        val fnTop = boardH - dead - tun.fnRowHeight * density
         if (y >= fnTop) {
             val u = x / (boardW / 6f)                     // fn row lives in 6-unit space
             var acc = 0f
@@ -410,6 +409,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             out = ch.uppercase()
             if (shiftState == 1) {
                 shiftState = 0
+                autoShifted = false
                 host.requestRender()
             }
         }
@@ -458,9 +458,10 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     }
 
     private fun doShift(t: Long) {
-        shiftState = if (t - lastShiftTs < Config.SHIFT_DBL_MS) 2
-        else if (shiftState == 0) 1 else 0
-        lastShiftTs = t
+        // Pure toggle: shift-once on/off (also exits caps). Caps lock = HOLD the
+        // SHIFT key — the double-tap/double-swipe window was removed 2026-07-19.
+        shiftState = if (shiftState == 0) 1 else 0
+        autoShifted = false          // manual intent always wins over auto-caps
         host.haptic(HapticKind.COMMIT)
         host.requestRender()
     }
@@ -499,6 +500,15 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
                 st.held = true
                 host.execute(EngineCommand.Enter)           // host resolves action-vs-newline
                 host.haptic(HapticKind.COMMIT)
+            }
+        }
+        if (k.fn == "shift") {                              // hold shift = caps lock
+            st.holdTask = host.schedule(tun.holdMs) {       // (2026-07-19: replaces double-tap)
+                st.held = true
+                shiftState = if (shiftState == 2) 0 else 2
+                autoShifted = false
+                host.haptic(HapticKind.HOLD_FLIP)
+                host.requestRender()
             }
         }
     }
@@ -771,7 +781,6 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         rawKeyMode = info != null && info.inputType == InputType.TYPE_NULL
         shiftState = 0
         lastSpaceTs = 0
-        lastShiftTs = 0
         val target = when (info?.inputType?.and(InputType.TYPE_MASK_CLASS)) {
             InputType.TYPE_CLASS_NUMBER,
             InputType.TYPE_CLASS_PHONE,
@@ -791,6 +800,23 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         // snapshot anchor/f at engagement and never re-read these mid-drag.
         this.selStart = selStart
         this.selEnd = selEnd
+        evalAutoCaps()
+    }
+
+    /** Auto-caps: arm shift at sentence starts; auto-disarm only what auto
+     *  armed (manual shift/caps is never overridden). Skipped mid-gesture —
+     *  drag echoes would hammer the IPC — and re-evaluated on release-echo. */
+    private fun evalAutoCaps() {
+        if (!tun.autoCaps || rawKeyMode || touches.isNotEmpty()) return
+        if (shiftState == 0 && host.autoCapsNow()) {
+            shiftState = 1
+            autoShifted = true
+            host.requestRender()
+        } else if (autoShifted && shiftState == 1 && !host.autoCapsNow()) {
+            shiftState = 0
+            autoShifted = false
+            host.requestRender()
+        }
     }
 
     override fun onFinishInput() {

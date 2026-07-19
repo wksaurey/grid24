@@ -15,6 +15,10 @@ data class Tunables(
     val cornerStyle: String = "round",
     /** 4-key fn row experiment (SHIFT/DELETE/SPACE/ENTER) vs classic 2-key. */
     val fnRowKeys: Boolean = true,
+    /** Auto-arm shift at sentence starts (field start, after . ! ? + space). */
+    val autoCaps: Boolean = true,
+    val rowHeight: Float = Grid24Engine.Config.LETTER_ROW_H,
+    val fnRowHeight: Float = Grid24Engine.Config.FN_ROW_H,
     val tapT: Float = Grid24Engine.Config.TAP_T,
     val gestureT: Float = Grid24Engine.Config.GESTURE_T,
     val dragT: Float = Grid24Engine.Config.DRAG_T,

@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.InputType
+import android.text.TextUtils
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -53,16 +54,17 @@ class Grid24Ime : InputMethodService(), EngineHost {
         super.onDestroy()
     }
 
-    private var lastDeadZone = -1f
+    private var lastHeightSig = ""
 
     private fun refreshTunables() {
         val t = TunablesStore.load(this)
         engine.applyTunables(t)
-        // Relayout ONLY when board height actually changes (dead zone) — a
-        // same-size IME remeasure still relayouts the host activity, which
-        // scrolls the settings page to its focused field on every slider tick.
-        if (t.deadZone != lastDeadZone) {
-            lastDeadZone = t.deadZone
+        // Relayout ONLY when board height actually changes — a same-size IME
+        // remeasure still relayouts the host activity, which scrolls the
+        // settings page to its focused field on every slider tick.
+        val heightSig = "${t.deadZone}/${t.rowHeight}/${t.fnRowHeight}"
+        if (heightSig != lastHeightSig) {
+            lastHeightSig = heightSig
             boardView?.requestLayout()
         }
         boardView?.invalidate()
@@ -239,6 +241,16 @@ class Grid24Ime : InputMethodService(), EngineHost {
 
     override fun textBeforeCursor(n: Int): CharSequence? =
         currentInputConnection?.getTextBeforeCursor(n, 0)
+
+    override fun autoCapsNow(): Boolean {
+        if (isPasswordField()) return false
+        val ic = currentInputConnection ?: return false
+        // Force the sentence-caps mask (rather than the field's own inputType)
+        // so the user's toggle governs everywhere, not only in fields that
+        // opted into TYPE_TEXT_FLAG_CAP_SENTENCES themselves.
+        val mask = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        return (ic.getCursorCapsMode(mask) and TextUtils.CAP_MODE_SENTENCES) != 0
+    }
 
     override fun textLength(): Int? =
         currentInputConnection?.getExtractedText(ExtractedTextRequest(), 0)
