@@ -3,4 +3,5 @@
     <string name="app_name">Grid24</string>
     <string name="ime_label">Grid24 Keyboard</string>
     <string name="subtype_en">English (US)</string>
+    <string name="settings_label">Grid24 Settings</string>
 </resources>

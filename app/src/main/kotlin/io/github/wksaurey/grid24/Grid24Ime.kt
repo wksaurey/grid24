@@ -2,6 +2,8 @@ package io.github.wksaurey.grid24
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.SharedPreferences
+import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
@@ -32,9 +34,50 @@ class Grid24Ime : InputMethodService(), EngineHost {
     private var selStart = 0
     private var selEnd = 0
 
+    // MUST be a field: SharedPreferences holds listeners weakly — a lambda
+    // registered inline gets garbage-collected and silently stops firing.
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        refreshTunables()
+    }
+
     override fun onCreate() {
         super.onCreate()
         engine = createEngine()
+        // Live refresh: settings-lab changes apply while the keyboard is showing
+        // (slider drags repaint the open board in real time).
+        TunablesStore.prefs(this).registerOnSharedPreferenceChangeListener(prefsListener)
+    }
+
+    override fun onDestroy() {
+        TunablesStore.prefs(this).unregisterOnSharedPreferenceChangeListener(prefsListener)
+        super.onDestroy()
+    }
+
+    private var lastDeadZone = -1f
+
+    private fun refreshTunables() {
+        val t = TunablesStore.load(this)
+        engine.applyTunables(t)
+        // Relayout ONLY when board height actually changes (dead zone) — a
+        // same-size IME remeasure still relayouts the host activity, which
+        // scrolls the settings page to its focused field on every slider tick.
+        if (t.deadZone != lastDeadZone) {
+            lastDeadZone = t.deadZone
+            boardView?.requestLayout()
+        }
+        boardView?.invalidate()
+        // Nav-strip icons + legacy strip color follow the theme's brightness.
+        window?.window?.let { w ->
+            val light = Color.luminance(engine.backgroundColor) > 0.5f
+            w.insetsController?.setSystemBarsAppearance(
+                if (light) WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS else 0,
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+            )
+            if (Build.VERSION.SDK_INT < 35) {
+                @Suppress("DEPRECATION")
+                w.navigationBarColor = engine.backgroundColor
+            }
+        }
     }
 
     /** Engine selection is a build-time constant for v1 (CLAUDE.md). */
@@ -77,6 +120,9 @@ class Grid24Ime : InputMethodService(), EngineHost {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        // Settings lab: belt-and-suspenders with the live pref listener —
+        // guarantees fresh tunables even if a change landed while unbound.
+        refreshTunables()
         // Seed selection from the field — stale values from the previous field
         // would misdirect the first cursor command (initialSelStart is -1 when
         // the field doesn't report; treat as 0).

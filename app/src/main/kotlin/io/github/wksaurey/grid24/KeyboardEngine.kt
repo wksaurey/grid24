@@ -52,6 +52,11 @@ interface KeyboardEngine {
 
     /** Input session ended / view hidden: cancel timers, drop all pointer state. */
     fun onFinishInput()
+
+    /** Live-tunable constants + feature toggles changed (settings lab). The host
+     *  re-reads prefs on every session start and pushes them here; engines apply
+     *  cheaply when nothing changed. */
+    fun applyTunables(t: Tunables)
 }
 
 /** What an engine asks the host to do against the current input field. */

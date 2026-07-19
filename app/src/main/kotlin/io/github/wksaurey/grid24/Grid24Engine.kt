@@ -1,8 +1,9 @@
 package io.github.wksaurey.grid24
 
 import android.graphics.Canvas
-import android.graphics.Color
+import android.graphics.CornerPathEffect
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.InputType
@@ -44,7 +45,10 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         const val FN_ROW_H = 60f         // dp — function row ~25% taller
         const val DEAD_ZONE = 18f        // dp — gap below board (nav inset stacks on top)
         const val GAP = 4f               // dp — visual gap between keys
-        const val KEY_RADIUS = 10f       // dp
+        const val KEY_RADIUS = 10f       // dp — round corner style (slider-tunable)
+        const val CHAMFER_CUT = 5f       // dp — chamfer facet, FIXED by design
+                                         // (Kolter 2026-07-19: not user-editable;
+                                         // 7 -> 5 same day, "drop it even more")
 
         /* Selection-drag hybrid physics (M4) — prototype values, dp unless noted. */
         const val DEL_STEP = 20f         // dp/char — neutral (positional) zone resolution
@@ -62,17 +66,9 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         const val DEL_TICK = 50L         // ms: velocity integrator period
     }
 
-    /* Prototype CSS :root colors, verbatim. */
-    private object Palette {
-        val BG = Color.parseColor("#191c22")
-        val SURFACE = Color.parseColor("#22262e")
-        val SURFACE_2 = Color.parseColor("#2a2f39")
-        val LINE = Color.parseColor("#363c48")
-        val INK = Color.parseColor("#ece7d9")
-        val INK_DIM = Color.parseColor("#9a958a")
-        val ACCENT = Color.parseColor("#e8873a")
-        val PRESS_INK = Color.parseColor("#1a1408")
-    }
+    /* Colors come from the selected Theme (Themes.kt); "slate" is the
+     * prototype's CSS :root palette verbatim and the default. */
+    private var theme = Themes.ALL.getValue(Themes.DEFAULT)
 
     private class Key(
         val pri: String,
@@ -81,6 +77,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         val fn: String? = null,    // "del" | "space" — function row keys
     ) {
         val rect = RectF()
+        var idx = -1               // alpha-grid index (mosaic tile lookup); -1 = fn
         var pressed = false
         var holdFlipped = false    // hold fired: label shows the alt (prototype .longing)
     }
@@ -94,10 +91,26 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     /** 6 columns on alpha/symbols; the calculator renders at 4 (wider keys). */
     private fun cols(): Int = if (layer == Layer.NUM) 4 else 6
 
-    /** Function row: prototype fnOrder default = DELETE left slot, SPACE right. */
+    /** Function row (experiment 2026-07-19): SHIFT/ENTER added as 1u tap
+     *  fallbacks for the swipe-up-shift / space-hold-enter gestures (which
+     *  remain). DELETE-left / SPACE-right preserved in the middle. Widths in
+     *  grid units of 6 — tweak FN_UNITS to try e.g. four 1.5u keys. */
+    private val fnShift = Key("SHIFT", null, null, fn = "shift")
     private val fnDel = Key("⌫ DELETE", null, null, fn = "del")
     private val fnSpace = Key("SPACE", null, null, fn = "space")
-    private val fnOrder = arrayOf(fnDel, fnSpace)
+    private val fnEnter = Key("ENTER", null, null, fn = "enter")
+    private var fnOrder = arrayOf(fnShift, fnDel, fnSpace, fnEnter)
+    private var fnUnits = floatArrayOf(1f, 2f, 2f, 1f)
+
+    private fun rebuildFnRow() {
+        if (tun.fnRowKeys) {
+            fnOrder = arrayOf(fnShift, fnDel, fnSpace, fnEnter)
+            fnUnits = floatArrayOf(1f, 2f, 2f, 1f)
+        } else {                                            // classic prototype row
+            fnOrder = arrayOf(fnDel, fnSpace)
+            fnUnits = floatArrayOf(3f, 3f)
+        }
+    }
 
     private enum class DragMode { BACK, FWD, MOVE, CURSOR }
 
@@ -141,6 +154,9 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     /** Per-pointer state, keyed by stable pointer id — the prototype's `touches` map. */
     private val touches = HashMap<Int, PointerState>()
 
+    /* Live tunables (settings lab) — defaults mirror Config. */
+    private var tun = Tunables()
+
     /* Keyboard-side state (prototype globals). */
     private var rawKeyMode = false // TYPE_NULL host (terminal): arrows, no selection
     private var shiftState = 0     // 0 none, 1 next, 2 lock
@@ -156,10 +172,12 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     private var boardH = 0
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x36000000 }
+    private val shadowRect = RectF()
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1f
-        color = Palette.LINE
+        color = Themes.ALL.getValue(Themes.DEFAULT).line // re-set per render from theme
     }
     private val priPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -175,7 +193,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         letterSpacing = 0.14f
     }
 
-    override val backgroundColor: Int get() = Palette.BG
+    override val backgroundColor: Int get() = theme.bg
 
     init {
         buildKeys()
@@ -184,7 +202,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     private fun buildKeys() {
         keys.clear()
         val rows = when (layer) {
-            Layer.ALPHA -> Layouts.ALPHA.getValue(Layouts.DEFAULT)
+            Layer.ALPHA -> Layouts.ALPHA[tun.layout] ?: Layouts.ALPHA.getValue(Layouts.DEFAULT)
             Layer.SYM -> Layouts.SYM
             Layer.NUM -> Layouts.NUM
         }
@@ -192,7 +210,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             row.forEachIndexed { ci, def ->
                 // Positional holds (digits + punctuation) ride the alpha layer only.
                 val num = if (layer == Layer.ALPHA) Layouts.ALPHA_HOLDS[ri][ci] else null
-                keys.add(Key(def.pri, def.sec, num))
+                keys.add(Key(def.pri, def.sec, num).also { it.idx = keys.size })
             }
         }
         if (boardW > 0) layoutKeys(boardW, boardH)   // column count may have changed
@@ -213,7 +231,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
     override fun measureHeight(widthPx: Int, density: Float): Int {
         this.density = density
-        return ((4 * Config.LETTER_ROW_H + Config.FN_ROW_H + Config.DEAD_ZONE) * density).toInt()
+        return ((4 * Config.LETTER_ROW_H + Config.FN_ROW_H + tun.deadZone) * density).toInt()
     }
 
     /** Cell layout mirrors the prototype's keyAt(): 6 equal columns; letter rows
@@ -221,7 +239,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     private fun layoutKeys(w: Int, h: Int) {
         boardW = w
         boardH = h
-        val dead = Config.DEAD_ZONE * density
+        val dead = tun.deadZone * density
         val fnH = Config.FN_ROW_H * density
         val fnTop = h - dead - fnH
         val nc = cols()
@@ -236,11 +254,14 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
                 (c + 1) * cellW - inset, (r + 1) * cellH - inset,
             )
         }
+        // Fn-row widths are unit-based over 6, independent of the grid's column
+        // count (proportions hold on the 4-col calculator too).
+        val unitW = w / 6f
+        var accU = 0f
         fnOrder.forEachIndexed { i, k ->
-            k.rect.set(
-                i * w / 2f + inset, fnTop + inset,
-                (i + 1) * w / 2f - inset, fnTop + fnH - inset,
-            )
+            val x0 = accU * unitW
+            accU += fnUnits[i]
+            k.rect.set(x0 + inset, fnTop + inset, accU * unitW - inset, fnTop + fnH - inset)
         }
     }
 
@@ -253,11 +274,19 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         // forgiven down to boardH (prototype keyAt behavior). Below boardH is
         // the nav-inset band — the system's globe/chevron strip, never ours.
         if (y >= boardH) return null
-        val dead = Config.DEAD_ZONE * density
+        val dead = tun.deadZone * density
         val fnTop = boardH - dead - Config.FN_ROW_H * density
+        if (y >= fnTop) {
+            val u = x / (boardW / 6f)                     // fn row lives in 6-unit space
+            var acc = 0f
+            fnOrder.forEachIndexed { i, k ->
+                acc += fnUnits[i]
+                if (u < acc) return k
+            }
+            return fnOrder.last()
+        }
         val nc = cols()
         val col = ((x / (boardW / nc.toFloat())).toInt()).coerceIn(0, nc - 1)
-        if (y >= fnTop) return fnOrder[if (col < nc / 2) 0 else 1]
         val row = ((y / (fnTop / 4f)).toInt()).coerceIn(0, 3)
         return keys[row * nc + col]
     }
@@ -267,27 +296,73 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     override fun render(canvas: Canvas, widthPx: Int, heightPx: Int, density: Float) {
         this.density = density
         if (widthPx != boardW || heightPx != boardH) layoutKeys(widthPx, heightPx)
-        fillPaint.color = Palette.BG
+        strokePaint.color = theme.line
+        fillPaint.color = theme.bg
         canvas.drawRect(0f, 0f, widthPx.toFloat(), heightPx.toFloat(), fillPaint)
-        keys.forEach { drawKey(canvas, it) }
-        fnOrder.forEach { drawKey(canvas, it) }
+        keys.forEach { drawKey(canvas, it, -1) }
+        fnOrder.forEachIndexed { i, k -> drawKey(canvas, k, i) }
     }
 
-    private fun drawKey(canvas: Canvas, k: Key) {
-        val radius = Config.KEY_RADIUS * density
-        val active = k.pressed || k.holdFlipped
-        fillPaint.color = when {
-            active -> Palette.ACCENT
-            k.fn != null || k.sec != null -> Palette.SURFACE_2
-            else -> Palette.SURFACE
+    /** Key silhouette per corner style: rounded radius (slider-tunable) or 45°
+     *  chamfer at a FIXED 7dp facet with light vertex softening (~20% of the
+     *  cut) — crisp bevels, no blade edges, not user-scalable by design. */
+    private val keyPath = Path()
+    private var softenPx = -1f
+    private var soften: CornerPathEffect? = null
+    private fun drawKeyShape(canvas: Canvas, rect: RectF, paint: Paint) {
+        val base = if (tun.cornerStyle == "chamfer") Config.CHAMFER_CUT else Config.KEY_RADIUS
+        val c = (base * density).coerceAtMost(minOf(rect.width(), rect.height()) / 2f)
+        if (tun.cornerStyle == "chamfer") {
+            if (softenPx != c * 0.2f) {
+                softenPx = c * 0.2f
+                soften = if (softenPx > 0f) CornerPathEffect(softenPx) else null
+            }
+            keyPath.rewind()
+            keyPath.moveTo(rect.left + c, rect.top)
+            keyPath.lineTo(rect.right - c, rect.top)
+            keyPath.lineTo(rect.right, rect.top + c)
+            keyPath.lineTo(rect.right, rect.bottom - c)
+            keyPath.lineTo(rect.right - c, rect.bottom)
+            keyPath.lineTo(rect.left + c, rect.bottom)
+            keyPath.lineTo(rect.left, rect.bottom - c)
+            keyPath.lineTo(rect.left, rect.top + c)
+            keyPath.close()
+            paint.pathEffect = soften
+            canvas.drawPath(keyPath, paint)
+            paint.pathEffect = null
+        } else {
+            canvas.drawRoundRect(rect, c, c, paint)
         }
-        canvas.drawRoundRect(k.rect, radius, radius, fillPaint)
-        canvas.drawRoundRect(k.rect, radius, radius, strokePaint)
+    }
+
+    private fun drawKey(canvas: Canvas, k: Key, fnIndex: Int) {
+        // Mosaic themes tint individual alpha-layer keys / fn slots.
+        val tile = if (k.fn == null && layer == Layer.ALPHA) theme.tiles[k.idx] else null
+        val fnFill = if (fnIndex >= 0 && theme.fnFills?.size == fnOrder.size) theme.fnFills!![fnIndex] else null
+        val fnInk = if (fnIndex >= 0 && theme.fnInks?.size == fnOrder.size) theme.fnInks!![fnIndex] else null
+
+        // The SHIFT key displays the armed/locked state the gesture never could.
+        val active = k.pressed || k.holdFlipped || (k.fn == "shift" && shiftState > 0)
+        fillPaint.color = when {
+            active -> theme.accent
+            tile != null -> tile.fill
+            fnFill != null -> fnFill
+            k.fn != null || k.sec != null -> theme.surface2
+            else -> theme.surface
+        }
+        // Soft lift: the key silhouette offset down, in translucent black —
+        // hardware-canvas-safe fake shadow, all themes.
+        shadowRect.set(k.rect)
+        shadowRect.offset(0f, 1.6f * density)
+        drawKeyShape(canvas, shadowRect, shadowPaint)
+        drawKeyShape(canvas, k.rect, fillPaint)
+        drawKeyShape(canvas, k.rect, strokePaint)
 
         if (k.fn != null) {
             fnPaint.textSize = 13f * density
-            fnPaint.color = if (active) Palette.PRESS_INK else Palette.INK_DIM
-            drawCentered(canvas, k.pri, fnPaint, k.rect)
+            fnPaint.color = if (active) theme.pressInk else (fnInk ?: theme.inkDim)
+            val label = if (k.fn == "shift" && shiftState == 2) "CAPS" else k.pri
+            drawCentered(canvas, label, fnPaint, k.rect)
             return
         }
 
@@ -299,20 +374,20 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             else -> k.pri.lowercase()
         }
         priPaint.textSize = (if (layer == Layer.NUM) 23f else 19f) * density  // calculator keys read bigger
-        priPaint.color = if (active) Palette.PRESS_INK else Palette.INK
+        priPaint.color = if (active) theme.pressInk else (tile?.ink ?: theme.ink)
         drawCentered(canvas, glyph, priPaint, k.rect)
 
         // Secondary glyph, bottom-right: merged secondary (ink-dim) or positional
-        // digit (accent, 70% opacity) — prototype .sec / .sec.num styling.
+        // hold (theme hold-accent) — prototype .sec / .sec.num styling.
         val secText = k.sec ?: k.num
         if (secText != null && !k.holdFlipped) {
             secPaint.textSize = 10f * density
             secPaint.color = when {
-                active -> Palette.PRESS_INK
-                k.sec != null -> Palette.INK_DIM
-                else -> Palette.ACCENT
+                active -> theme.pressInk
+                k.sec != null -> tile?.ink ?: theme.inkDim
+                else -> tile?.holdAccent ?: theme.holdAccent
             }
-            secPaint.alpha = if (active || k.sec != null) 255 else 178   // num: 0.7 opacity
+            secPaint.alpha = if (active || k.sec != null) 255 else 235
             canvas.drawText(
                 secText,
                 k.rect.right - 5f * density,
@@ -367,6 +442,21 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         lastSpaceTs = t
     }
 
+    private fun fnTap(k: Key, t: Long) {
+        when (k.fn) {
+            "space" -> doSpace(t)
+            "del" -> {
+                host.execute(EngineCommand.Backspace)
+                host.haptic(HapticKind.COMMIT)
+            }
+            "shift" -> doShift(t)                           // same double-tap caps logic
+            "enter" -> {
+                host.execute(EngineCommand.Enter)
+                host.haptic(HapticKind.COMMIT)
+            }
+        }
+    }
+
     private fun doShift(t: Long) {
         shiftState = if (t - lastShiftTs < Config.SHIFT_DBL_MS) 2
         else if (shiftState == 0) 1 else 0
@@ -391,7 +481,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
         val alt = altOf(k)
         if (alt != null) {                                  // hold = merged/digit alt
-            st.holdTask = host.schedule(Config.HOLD_MS) {
+            st.holdTask = host.schedule(tun.holdMs) {
                 st.long = true
                 k.holdFlipped = true
                 host.haptic(HapticKind.HOLD_FLIP)
@@ -399,7 +489,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             }
         }
         if (k.fn == "del") {                                // hold delete = repeat
-            st.holdTask = host.schedule(Config.HOLD_MS) {
+            st.holdTask = host.schedule(tun.holdMs) {
                 st.repeating = true
                 repeatBackspace(st)
             }
@@ -423,14 +513,14 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
      * leftOver > 0 near the left break/edge, rightOver > 0 near the right. */
 
     private fun leftOver(dx: Float, x: Float): Float =
-        maxOf(-dx - Config.DEL_BREAK * density, (Config.DEL_EDGE * density - x) * 3f)
+        maxOf(-dx - tun.delBreak * density, (Config.DEL_EDGE * density - x) * 3f)
 
     private fun rightOver(dx: Float, x: Float): Float =
         maxOf(dx - Config.DEL_REV_BREAK * density, (x - (boardW - Config.DEL_EDGE * density)) * 3f)
 
     private fun zoneRate(over: Float): Float {
         val n = over / (Config.DEL_RATE_SPAN * density)
-        return minOf(Config.DEL_RATE_MAX, Config.DEL_RATE_MIN + n * n * Config.DEL_RATE_SCALE)
+        return minOf(tun.delRateMax, tun.delRateMin + n * n * Config.DEL_RATE_SCALE)
     }
 
     private fun dragClamp(st: PointerState) {
@@ -508,7 +598,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         // Past TAP_T this is no longer a clean tap: cancel the pending hold tier
         // and clear the press highlight (prototype clears st.timer + .press here).
         // An already-running delete repeat survives movement, as in the prototype.
-        if (st.maxTravel > Config.TAP_T * density) {
+        if (st.maxTravel > tun.tapT * density) {
             if (!st.repeating) {
                 st.holdTask?.cancel()
                 st.holdTask = null
@@ -532,7 +622,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         // selection drags live on the function row. A running delete-repeat never
         // also engages a drag.
         if (!st.del && !st.repeating &&
-            st.maxTravel > Config.DRAG_T * density && abs(dx) > abs(dy)
+            st.maxTravel > tun.dragT * density && abs(dx) > abs(dy)
         ) {
             st.del = true
             // Clamp bound, queried once — text can't change during a drag. Fields
@@ -574,7 +664,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             // crossings (the prevNeutral freeze — retreating from a velocity burst
             // must never mass-reverse the count).
             if (neutral && st.prevNeutral) {
-                val d = ddx / (Config.DEL_STEP * density)
+                val d = ddx / (tun.delStep * density)
                 if (st.mode == DragMode.BACK) st.f -= d    // leftward grows backward selection
                 else st.f += d                             // rightward grows fwd / slides window
                 dragClamp(st)
@@ -598,8 +688,8 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
         val dx = x - st.x0
         val dy = y - st.y0
-        val tapPx = Config.TAP_T * density
-        val gesturePx = Config.GESTURE_T * density
+        val tapPx = tun.tapT * density
+        val gesturePx = tun.gestureT * density
 
         // Fast horizontal swipes move the cursor. With a selection (as it stood
         // at touch-down), collapse to the swiped end; otherwise nudge one char —
@@ -630,11 +720,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         if (st.maxTravel <= tapPx) {                        // tap
             val k = st.key ?: return
             when {
-                k.fn == "space" -> doSpace(t)
-                k.fn == "del" -> {
-                    host.execute(EngineCommand.Backspace)
-                    host.haptic(HapticKind.COMMIT)
-                }
+                k.fn != null -> fnTap(k, t)
                 st.long -> commitChar(altOf(k) ?: k.pri)    // hold fired: commit the alt
                 else -> commitChar(k.pri)
             }
@@ -642,14 +728,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         }
         if (st.maxTravel < gesturePx) {                     // slow flick band: forgiving sloppy tap
             val k = st.key ?: return
-            when (k.fn) {
-                "space" -> doSpace(t)
-                "del" -> {
-                    host.execute(EngineCommand.Backspace)
-                    host.haptic(HapticKind.COMMIT)
-                }
-                else -> commitChar(k.pri)
-            }
+            if (k.fn != null) fnTap(k, t) else commitChar(k.pri)
             return
         }
 
@@ -716,6 +795,15 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
     override fun onFinishInput() {
         clearPointers()
+    }
+
+    override fun applyTunables(t: Tunables) {
+        if (t == tun) return
+        tun = t
+        theme = Themes.ALL[t.theme] ?: Themes.ALL.getValue(Themes.DEFAULT)
+        rebuildFnRow()
+        buildKeys()          // layout choice / fn row / geometry may have changed
+        host.requestRender()
     }
 
     private fun clearPointers() {
