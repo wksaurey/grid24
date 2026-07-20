@@ -69,8 +69,10 @@ if the next never happens. Distribution research backing this: `docs/research/fd
 
 ## Non-negotiables that survive every phase
 
-- Zero permissions (not even VIBRATE), zero INTERNET forever, zero third-party
-  dependencies. This is the trust story for a keyboard — it is the marketing.
+- Minimal permissions: VIBRATE only (added 2026-07-19 for user-controlled haptic
+  intensity — amplitude needs VibrationEffect), zero INTERNET forever, zero
+  third-party dependencies. This is the trust story for a keyboard — it is the
+  marketing.
 - AGPL-3.0. Local-only everything.
 - The prototype + CLAUDE.md deviations list stay in-repo: the design provenance
   is part of what makes the project credible.

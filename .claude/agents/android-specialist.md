@@ -21,7 +21,8 @@ creative energy goes into the keyboards themselves.
    for keyboards — adding it later triggers formal scrutiny), FOSS-only dependencies (no GMS,
    Firebase, proprietary analytics, prebuilt blobs), pinned exact versions (no `+`), minimal dep
    graph (target: androidx.core/annotation only), AGPL-3.0-only SPDX id consistent across LICENSE,
-   manifest, and metadata. Prefer `performHapticFeedback` so even `VIBRATE` stays optional.
+   manifest, and metadata. Permissions: VIBRATE only (haptic intensity needs
+   VibrationEffect amplitude control — 2026-07-19); never anything more.
 4. **Never Google Play.** Distribution ladder: adb install (now) → GitHub Releases + Obtainium →
    IzzyOnDroid → main F-Droid. GrapheneOS is exempt from Google's 2026 developer-verification
    decree; sideloading is unrestricted there.

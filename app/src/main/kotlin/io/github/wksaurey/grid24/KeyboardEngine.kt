@@ -70,6 +70,18 @@ sealed class EngineCommand {
      *  send/...) get performEditorAction; multiline/plain fields get "\n". */
     object Enter : EngineCommand()
 
+    /** Copy/Cut/Paste via the field's own context actions. Copy/Cut are
+     *  intentional: they DO write the system clipboard (the clip listener
+     *  mirrors them into the in-keyboard slots automatically). */
+    object Copy : EngineCommand()
+    object Cut : EngineCommand()
+    object Paste : EngineCommand()
+
+    /** Store the current selection into clip register [index] (keyboard-local;
+     *  the system clipboard is untouched). cut=true also removes it from the
+     *  text. No-op without a selection or in password fields. */
+    data class StoreClip(val index: Int, val cut: Boolean) : EngineCommand()
+
     /** Move the cursor by delta chars, collapsing any selection. */
     data class MoveCursor(val delta: Int) : EngineCommand()
 
@@ -116,6 +128,13 @@ interface EngineHost {
      *  after terminal punctuation + space). Host answers via getCursorCapsMode;
      *  always false in password fields / fields without an InputConnection. */
     fun autoCapsNow(): Boolean
+
+    /** The 8 clip REGISTERS, by stable slot position (null = empty). Manually
+     *  stored via StoreClip; auto-fed (copies made anywhere via the primary-clip
+     *  listener, and selections destroyed by typing/DELETE) into the first empty
+     *  slot, evicting the oldest entry only when all are full. Never contains
+     *  password-field content or sensitive-flagged clips. */
+    fun clips(): List<String?>
 
     /**
      * Total field text length, or null if the field won't say (some apps

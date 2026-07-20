@@ -3,7 +3,6 @@ package io.github.wksaurey.grid24
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
@@ -29,6 +28,13 @@ class BoardView(context: Context, private val engine: KeyboardEngine) : View(con
             }
             insets
         }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // Inset dispatch to IME views is unreliable; without this the board can
+        // show with bottomInset=0 and sit under the system globe/chevron strip.
+        requestApplyInsets()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -70,14 +76,6 @@ class BoardView(context: Context, private val engine: KeyboardEngine) : View(con
         return true
     }
 
-    fun performEngineHaptic(kind: HapticKind) {
-        val constant = when (kind) {
-            HapticKind.COMMIT -> HapticFeedbackConstants.KEYBOARD_TAP
-            HapticKind.HOLD_FLIP -> HapticFeedbackConstants.LONG_PRESS
-            HapticKind.DRAG_TICK -> HapticFeedbackConstants.CLOCK_TICK
-            HapticKind.CONFIRM -> HapticFeedbackConstants.CONFIRM
-            HapticKind.CANCEL -> HapticFeedbackConstants.REJECT
-        }
-        performHapticFeedback(constant)
-    }
+    // Haptics moved host-side (Grid24Ime.haptic): intensity control needs
+    // VibrationEffect, which performHapticFeedback can't express.
 }

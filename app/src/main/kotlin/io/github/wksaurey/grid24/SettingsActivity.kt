@@ -103,6 +103,10 @@ class SettingsActivity : Activity() {
         header("Typing")
         toggle("Auto-capitalize sentences", TunablesStore.K_AUTO_CAPS, Tunables().autoCaps)
         desc("Arms shift at the start of a field and after . ! ? + space. Only auto-armed shift auto-disarms — your manual shift/caps is never touched. Off in password fields and terminals.")
+        toggle("Auto-space after punctuation", TunablesStore.K_AUTO_SPACE_PUNCT, Tunables().autoSpacePunct)
+        desc(", . ? ! ; : typed from holds or the symbol layer get a trailing space. Never in the calculator or terminals; apostrophes are exempt (mid-word).")
+        toggle("One-shot symbol layer", TunablesStore.K_SYM_ONE_SHOT, Tunables().symOneShot)
+        desc("Typing any symbol returns to letters automatically. Off = the layer stays until you swipe down.")
 
         header("Tap & gesture thresholds — dp")
         slider("Tap travel limit (TAP_T)", TunablesStore.K_TAP_T, 8, 32, 1, Tunables().tapT.toInt(),
@@ -124,13 +128,30 @@ class SettingsActivity : Activity() {
         slider("Velocity cap chars/s (DEL_RATE_MAX)", TunablesStore.K_DEL_RATE_MAX, 30, 90, 5, Tunables().delRateMax.toInt(),
             "Top speed when pushed deep into the zone or pinned at a screen edge.")
 
+        header("Haptics")
+        slider("Intensity — % (0 = off)", TunablesStore.K_HAPTIC_PCT, 0, 100, 5, Tunables().hapticPct,
+            "Vibration strength for every keyboard buzz.")
+        slider("Duration scale — %", TunablesStore.K_HAPTIC_DUR_PCT, 50, 300, 25, Tunables().hapticDurPct,
+            "Stretches or shortens every buzz while keeping their relative pattern (tick < tap < hold < confirm).")
+        toggle("Buzz on key taps", TunablesStore.K_HAPTIC_TAPS, Tunables().hapticTaps)
+        toggle("Buzz on holds & caps lock", TunablesStore.K_HAPTIC_HOLDS, Tunables().hapticHolds)
+        toggle("Tick per character moved (drags & flicks)", TunablesStore.K_HAPTIC_TICKS, Tunables().hapticTicks)
+        desc("One light tick each time the cursor or selection steps a character. Release of a cursor drag is silent; locking in a selection buzzes under the events toggle.")
+        toggle("Buzz on layer switches & double-space", TunablesStore.K_HAPTIC_EVENTS, Tunables().hapticEvents)
+
         header("Board")
         slider("Key row height — dp (LETTER_ROW_H)", TunablesStore.K_ROW_H, 40, 64, 1, Tunables().rowHeight.toInt(),
             "Height of the four letter rows.")
         slider("Function row height — dp (FN_ROW_H)", TunablesStore.K_FN_ROW_H, 44, 84, 2, Tunables().fnRowHeight.toInt(),
             "Height of the SHIFT/DELETE/SPACE/ENTER row.")
+        slider("Horizontal key gap — dp", TunablesStore.K_GAP_H, 0, 12, 1, Tunables().gapH.toInt(),
+            "Visual space between columns. Hit-testing is cell-based, so gaps stay tappable.")
+        slider("Vertical key gap — dp", TunablesStore.K_GAP_V, 0, 12, 1, Tunables().gapV.toInt(),
+            "Visual space between rows.")
         slider("Dead zone / board lift (DEAD_ZONE)", TunablesStore.K_DEAD_ZONE, 0, 40, 2, Tunables().deadZone.toInt(),
             "Empty gap below the function row — lifts the whole board off the bottom edge. Taps landing in it still count as bottom-row keys.")
+        slider("Side dead zones — dp", TunablesStore.K_SIDE_ZONE, 0, 32, 2, Tunables().sideZone.toInt(),
+            "Margins on both sides of the board. Taps in them forgive to the nearest edge key; drag physics still uses the true screen edges.")
 
         resetButton()
     }

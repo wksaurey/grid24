@@ -1,6 +1,6 @@
 package io.github.wksaurey.grid24
 
-import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.SharedPreferences
 import android.graphics.Color
@@ -9,6 +9,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.VibratorManager
 import android.text.InputType
 import android.text.TextUtils
 import android.util.Log
@@ -41,23 +43,59 @@ class Grid24Ime : InputMethodService(), EngineHost {
         refreshTunables()
     }
 
+    /* In-keyboard clip slots (v1 of the registers model, Kolter 2026-07-19):
+     * slot 0 = newest SYSTEM clipboard (live, read-only), slot 1 = the DELETE
+     * buffer (last selection destroyed by typing/DELETE; live, read-only),
+     * slots 2-7 = six manual registers that ONLY explicit stores ever touch.
+     * No eviction policy — ownership makes one unnecessary. In-memory, v0. */
+    private var sysClip: String? = null
+    private var delBuf: String? = null
+    private val registers = arrayOfNulls<String>(6)
+
+    private val clipboardManager by lazy { getSystemService(ClipboardManager::class.java) }
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+        val clip = clipboardManager?.primaryClip ?: return@OnPrimaryClipChangedListener
+        val sensitive = clip.description?.extras
+            ?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE) == true
+        if (!sensitive) {
+            clip.getItemAt(0)?.coerceToText(this)?.toString()
+                ?.takeIf { it.isNotBlank() }?.let { sysClip = it }
+        }
+    }
+
+    /** Auto-feed from destroyed selections → the delete buffer. */
+    private fun addClip(text: CharSequence?) {
+        text?.toString()?.takeIf { it.isNotBlank() }?.let { delBuf = it }
+    }
+
+    /** Manual store — only the six registers (slots 2-7) are writable. */
+    private fun storeClipAt(index: Int, text: String) {
+        if (index in 2..7) registers[index - 2] = text
+    }
+
+    override fun clips(): List<String?> = listOf(sysClip, delBuf) + registers.toList()
+
     override fun onCreate() {
         super.onCreate()
         engine = createEngine()
         // Live refresh: settings-lab changes apply while the keyboard is showing
         // (slider drags repaint the open board in real time).
         TunablesStore.prefs(this).registerOnSharedPreferenceChangeListener(prefsListener)
+        clipboardManager?.addPrimaryClipChangedListener(clipListener)
     }
 
     override fun onDestroy() {
         TunablesStore.prefs(this).unregisterOnSharedPreferenceChangeListener(prefsListener)
+        clipboardManager?.removePrimaryClipChangedListener(clipListener)
         super.onDestroy()
     }
 
     private var lastHeightSig = ""
+    private var tunables = Tunables()   // host-side copy for haptic gating
 
     private fun refreshTunables() {
         val t = TunablesStore.load(this)
+        tunables = t
         engine.applyTunables(t)
         // Relayout ONLY when board height actually changes — a same-size IME
         // remeasure still relayouts the host activity, which scrolls the
@@ -139,6 +177,14 @@ class Grid24Ime : InputMethodService(), EngineHost {
         boardView?.invalidate()
     }
 
+    override fun onWindowShown() {
+        super.onWindowShown()
+        // Re-ask for insets on every show — a missed dispatch otherwise leaves
+        // the board overlapping the system strip until something else relayouts
+        // (observed 2026-07-19: stuck until a dead-zone nudge).
+        boardView?.requestApplyInsets()
+    }
+
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         // A running hold/repeat timer must never fire into a closed field.
@@ -212,6 +258,20 @@ class Grid24Ime : InputMethodService(), EngineHost {
             }
             is EngineCommand.SetSelection ->
                 if (!rawKeyHost()) ic.setSelection(cmd.a, cmd.b) // meaningless in terminals
+            is EngineCommand.Copy ->
+                Log.d("Grid24", "ctx copy handled=${ic.performContextMenuAction(android.R.id.copy)} sel=$selStart..$selEnd")
+            is EngineCommand.Cut ->
+                Log.d("Grid24", "ctx cut handled=${ic.performContextMenuAction(android.R.id.cut)} sel=$selStart..$selEnd")
+            is EngineCommand.Paste ->
+                Log.d("Grid24", "ctx paste handled=${ic.performContextMenuAction(android.R.id.paste)}")
+            is EngineCommand.StoreClip -> {
+                val sel = ic.getSelectedText(0)?.toString()
+                Log.d("Grid24", "storeClip idx=${cmd.index} cut=${cmd.cut} len=${sel?.length}")
+                if (!sel.isNullOrEmpty() && !isPasswordField()) {
+                    storeClipAt(cmd.index, sel)
+                    if (cmd.cut) ic.commitText("", 1)   // cut: remove from the text
+                }
+            }
             is EngineCommand.Batch -> {
                 ic.beginBatchEdit()
                 try {
@@ -223,8 +283,35 @@ class Grid24Ime : InputMethodService(), EngineHost {
         }
     }
 
+    private val vibrator by lazy {
+        getSystemService(VibratorManager::class.java)?.defaultVibrator
+    }
+
+    /** User-controlled haptics (settings lab): per-event-class toggles +
+     *  amplitude from the intensity %. VibrationEffect (not
+     *  performHapticFeedback) because intensity needs amplitude control —
+     *  the reason the manifest carries VIBRATE. Durations approximate the
+     *  prototype's buzz() patterns. */
     override fun haptic(kind: HapticKind) {
-        boardView?.performEngineHaptic(kind)
+        val t = tunables
+        if (t.hapticPct <= 0) return
+        val enabled = when (kind) {
+            HapticKind.COMMIT -> t.hapticTaps
+            HapticKind.HOLD_FLIP -> t.hapticHolds
+            HapticKind.DRAG_TICK -> t.hapticTicks
+            HapticKind.CONFIRM, HapticKind.CANCEL -> t.hapticEvents
+        }
+        if (!enabled) return
+        val amp = (t.hapticPct * 255 / 100).coerceIn(1, 255)
+        val base = when (kind) {
+            HapticKind.COMMIT -> 8L        // prototype buzz(8)
+            HapticKind.HOLD_FLIP -> 16L    // buzz([10,30,10]) condensed
+            HapticKind.DRAG_TICK -> 5L     // buzz(4)
+            HapticKind.CONFIRM -> 20L      // buzz([8,40,8]) condensed
+            HapticKind.CANCEL -> 14L       // buzz([8,30,8]) condensed
+        }
+        val dur = (base * t.hapticDurPct / 100L).coerceAtLeast(1L)
+        vibrator?.vibrate(VibrationEffect.createOneShot(dur, amp))
     }
 
     override fun requestRender() {
@@ -244,12 +331,22 @@ class Grid24Ime : InputMethodService(), EngineHost {
 
     override fun autoCapsNow(): Boolean {
         if (isPasswordField()) return false
-        val ic = currentInputConnection ?: return false
-        // Force the sentence-caps mask (rather than the field's own inputType)
-        // so the user's toggle governs everywhere, not only in fields that
-        // opted into TYPE_TEXT_FLAG_CAP_SENTENCES themselves.
-        val mask = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        return (ic.getCursorCapsMode(mask) and TextUtils.CAP_MODE_SENTENCES) != 0
+        val ic = currentInputConnection ?: run {
+            Log.d("Grid24", "autoCapsNow: no InputConnection")
+            return false
+        }
+        // Force the caps mask (rather than the field's own inputType) so the
+        // user's toggle governs everywhere, not only in fields that opted in.
+        val mask = InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        val modes = ic.getCursorCapsMode(mask)
+        Log.d("Grid24", "autoCapsNow: modes=0x${Integer.toHexString(modes)}")
+        if (modes and TextUtils.CAP_MODE_SENTENCES != 0) return true
+        // AOSP reports WORDS (not SENTENCES) at the very start of empty text —
+        // logcat-verified 2026-07-19. WORDS counts only when nothing precedes
+        // the cursor (a true field start); mid-text WORDS = every-word caps, no.
+        return modes and TextUtils.CAP_MODE_WORDS != 0 &&
+            ic.getTextBeforeCursor(1, 0).isNullOrEmpty()
     }
 
     override fun textLength(): Int? =
@@ -257,16 +354,14 @@ class Grid24Ime : InputMethodService(), EngineHost {
             ?.let { it.startOffset + it.text.length } // extract may be a window, not the whole text
 
     /**
-     * Any command about to destroy a live selection stashes it to the system
-     * clipboard first — recovery net for accidental type-overs/deletes, and the
-     * seed of the planned clipboard features. Never in password fields.
+     * Any command about to destroy a live selection stashes it to the
+     * IN-KEYBOARD clip history — recovery net for accidental type-overs/deletes.
+     * (2026-07-19: no longer written to the system clipboard, which clobbered
+     * the user's real clip on every type-over.) Never in password fields.
      */
     private fun stashSelectionToClipboard(ic: InputConnection) {
         if (selStart == selEnd || isPasswordField()) return
-        val doomed = ic.getSelectedText(0)
-        if (doomed.isNullOrEmpty()) return
-        getSystemService(ClipboardManager::class.java)
-            ?.setPrimaryClip(ClipData.newPlainText("Grid24", doomed))
+        addClip(ic.getSelectedText(0))
     }
 
     /** TYPE_NULL host (Termux etc.): the old "send me raw key events" contract. */

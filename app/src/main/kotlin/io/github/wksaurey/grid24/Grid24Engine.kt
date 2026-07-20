@@ -77,18 +77,23 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
     ) {
         val rect = RectF()
         var idx = -1               // alpha-grid index (mosaic tile lookup); -1 = fn
+        var payload: String? = null // clip layer: full text this key commits
         var pressed = false
         var holdFlipped = false    // hold fired: label shows the alt (prototype .longing)
     }
 
-    private enum class Layer { ALPHA, SYM, NUM }
+    private enum class Layer { ALPHA, SYM, NUM, CLIP }
 
     /** Grid keys, row-major (24 on alpha/sym, 16 on num) — rebuilt on layer change. */
     private val keys = ArrayList<Key>()
     private var layer = Layer.ALPHA
 
-    /** 6 columns on alpha/symbols; the calculator renders at 4 (wider keys). */
-    private fun cols(): Int = if (layer == Layer.NUM) 4 else 6
+    /** 6 columns on alpha/symbols; calculator 4; clip layer = full-width rows. */
+    private fun cols(): Int = when (layer) {
+        Layer.NUM -> 4
+        Layer.CLIP -> 1
+        else -> 6
+    }
 
     /** Function row (experiment 2026-07-19): SHIFT/ENTER added as 1u tap
      *  fallbacks for the swipe-up-shift / space-hold-enter gestures (which
@@ -200,10 +205,35 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
     private fun buildKeys() {
         keys.clear()
+        if (layer == Layer.CLIP) {
+            // Clip slots (v4 of the layer — Kolter's two-tier model): row 0 =
+            // live SOURCES (system clipboard ⌁, delete buffer ⌫ — read-only,
+            // always paste, even over a selection); rows 1-3 = six manual
+            // REGISTERS. With a live selection, registers are store targets
+            // (tap = copy in, hold = cut in); otherwise tap pastes. Flick ⇢ exits.
+            val clips = host.clips()
+            val storing = selStart != selEnd
+            repeat(8) { i ->
+                val txt = clips.getOrNull(i)
+                val label = when {
+                    i == 0 -> "⌁ " + (txt?.let(::clipLabel) ?: "system ·")
+                    i == 1 -> "⌫ " + (txt?.let(::clipLabel) ?: "deleted ·")
+                    txt != null -> clipLabel(txt)
+                    storing -> "＋ store"
+                    else -> "·"
+                }
+                keys.add(Key(label, null, null).also {
+                    it.idx = keys.size
+                    it.payload = txt
+                })
+            }
+            if (boardW > 0) layoutKeys(boardW, boardH)
+            return
+        }
         val rows = when (layer) {
             Layer.ALPHA -> Layouts.ALPHA[tun.layout] ?: Layouts.ALPHA.getValue(Layouts.DEFAULT)
             Layer.SYM -> Layouts.SYM
-            Layer.NUM -> Layouts.NUM
+            else -> Layouts.NUM
         }
         rows.forEachIndexed { ri, row ->
             row.forEachIndexed { ci, def ->
@@ -213,6 +243,11 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             }
         }
         if (boardW > 0) layoutKeys(boardW, boardH)   // column count may have changed
+    }
+
+    private fun clipLabel(text: String): String {
+        val flat = text.replace("\n", "⏎").trim()
+        return if (flat.length > 16) flat.take(15) + "…" else flat
     }
 
     private fun setLayer(l: Layer) {
@@ -242,25 +277,41 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         val fnH = tun.fnRowHeight * density
         val fnTop = h - dead - fnH
         val nc = cols()
-        val cellW = w / nc.toFloat()
         val cellH = fnTop / 4f
-        val inset = Config.GAP * density / 2f
-        keys.forEachIndexed { i, k ->
-            val r = i / nc
-            val c = i % nc
-            k.rect.set(
-                c * cellW + inset, r * cellH + inset,
-                (c + 1) * cellW - inset, (r + 1) * cellH - inset,
-            )
+        val insetX = tun.gapH * density / 2f
+        val insetY = tun.gapV * density / 2f
+        // Side dead zones: keys lay out inside [side, w-side]; hit-testing
+        // forgives margin touches to the edge keys (keyAt clamps).
+        val side = tun.sideZone * density
+        val uw = w - 2 * side
+        if (layer == Layer.CLIP) {
+            keys.forEachIndexed { i, k ->
+                val r = i / 2
+                val c = i % 2
+                k.rect.set(
+                    side + c * uw / 2f + insetX, r * cellH + insetY,
+                    side + (c + 1) * uw / 2f - insetX, (r + 1) * cellH - insetY,
+                )
+            }
+        } else {
+            val cw = uw / nc.toFloat()
+            keys.forEachIndexed { i, k ->
+                val r = i / nc
+                val c = i % nc
+                k.rect.set(
+                    side + c * cw + insetX, r * cellH + insetY,
+                    side + (c + 1) * cw - insetX, (r + 1) * cellH - insetY,
+                )
+            }
         }
         // Fn-row widths are unit-based over 6, independent of the grid's column
         // count (proportions hold on the 4-col calculator too).
-        val unitW = w / 6f
+        val unitW = uw / 6f
         var accU = 0f
         fnOrder.forEachIndexed { i, k ->
-            val x0 = accU * unitW
+            val x0 = side + accU * unitW
             accU += fnUnits[i]
-            k.rect.set(x0 + inset, fnTop + inset, accU * unitW - inset, fnTop + fnH - inset)
+            k.rect.set(x0 + insetX, fnTop + insetY, side + accU * unitW - insetX, fnTop + fnH - insetY)
         }
     }
 
@@ -275,8 +326,12 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         if (y >= boardH) return null
         val dead = tun.deadZone * density
         val fnTop = boardH - dead - tun.fnRowHeight * density
+        // Side dead zones forgive to the edge keys: clamp x into the usable band.
+        val side = tun.sideZone * density
+        val uw = boardW - 2 * side
+        val cx = (x - side).coerceIn(0f, uw - 0.01f)
         if (y >= fnTop) {
-            val u = x / (boardW / 6f)                     // fn row lives in 6-unit space
+            val u = cx / (uw / 6f)                        // fn row lives in 6-unit space
             var acc = 0f
             fnOrder.forEachIndexed { i, k ->
                 acc += fnUnits[i]
@@ -284,8 +339,13 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             }
             return fnOrder.last()
         }
+        if (layer == Layer.CLIP) {
+            val row = ((y / (fnTop / 4f)).toInt()).coerceIn(0, 3)
+            val col = if (cx < uw / 2f) 0 else 1
+            return keys.getOrNull(row * 2 + col)
+        }
         val nc = cols()
-        val col = ((x / (boardW / nc.toFloat())).toInt()).coerceIn(0, nc - 1)
+        val col = ((cx / (uw / nc.toFloat())).toInt()).coerceIn(0, nc - 1)
         val row = ((y / (fnTop / 4f)).toInt()).coerceIn(0, 3)
         return keys[row * nc + col]
     }
@@ -367,13 +427,24 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
 
         // Hold-flip shows the armed alt; otherwise glyph case tracks shift/caps
         // (deviation from the always-uppercase prototype — see class doc).
+        // Clip labels render verbatim — they're text, not key glyphs.
         val glyph = when {
+            layer == Layer.CLIP -> k.pri
             k.holdFlipped -> (altOf(k) ?: k.pri).uppercase()
             shiftState > 0 -> k.pri.uppercase()
             else -> k.pri.lowercase()
         }
-        priPaint.textSize = (if (layer == Layer.NUM) 23f else 19f) * density  // calculator keys read bigger
-        priPaint.color = if (active) theme.pressInk else (tile?.ink ?: theme.ink)
+        priPaint.textSize = when (layer) {
+            Layer.NUM -> 23f    // calculator keys read bigger
+            Layer.CLIP -> 13f   // clip rows are text, not glyphs
+            else -> 19f
+        } * density
+        priPaint.color = when {
+            active -> theme.pressInk
+            layer == Layer.CLIP && k.idx < 2 -> theme.inkDim          // live source slots
+            layer == Layer.CLIP && k.payload == null -> theme.inkDim  // empty slot
+            else -> tile?.ink ?: theme.ink
+        }
         drawCentered(canvas, glyph, priPaint, k.rect)
 
         // Secondary glyph, bottom-right: merged secondary (ink-dim) or positional
@@ -413,8 +484,18 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
                 host.requestRender()
             }
         }
+        // Auto-space after sentence punctuation (setting) — alpha holds and the
+        // symbol layer only: the calculator types "3.14", terminals type paths.
+        // Apostrophe/quotes excluded: mid-word characters.
+        if (tun.autoSpacePunct && !rawKeyMode && layer != Layer.NUM &&
+            ch.length == 1 && ch[0] in ",.?!;:"
+        ) {
+            out += " "
+        }
         host.execute(EngineCommand.CommitText(out))
         host.haptic(HapticKind.COMMIT)
+        // One-shot symbol layer (setting): any symbol typed hops back to alpha.
+        if (layer == Layer.SYM && tun.symOneShot) setLayer(Layer.ALPHA)
     }
 
     private fun doSpace(t: Long) {
@@ -442,6 +523,23 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         lastSpaceTs = t
     }
 
+    /** Clip slot tap. Sources (idx 0-1) always paste — over a selection too
+     *  (the replaced text lands in the delete buffer, so it's reversible).
+     *  Registers (idx 2-7): with a live selection, STORE (copy) into the slot;
+     *  otherwise paste it. Every action hops back to letters. */
+    private fun clipTap(k: Key) {
+        if (k.idx >= 2 && selStart != selEnd) {
+            host.execute(EngineCommand.StoreClip(k.idx, cut = false))
+            host.haptic(HapticKind.CONFIRM)
+            setLayer(Layer.ALPHA)
+            return
+        }
+        val text = k.payload ?: return   // empty slot
+        host.execute(EngineCommand.CommitText(text))
+        host.haptic(HapticKind.COMMIT)
+        setLayer(Layer.ALPHA)
+    }
+
     private fun fnTap(k: Key, t: Long) {
         when (k.fn) {
             "space" -> doSpace(t)
@@ -449,7 +547,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
                 host.execute(EngineCommand.Backspace)
                 host.haptic(HapticKind.COMMIT)
             }
-            "shift" -> doShift(t)                           // same double-tap caps logic
+            "shift" -> doShift(t)
             "enter" -> {
                 host.execute(EngineCommand.Enter)
                 host.haptic(HapticKind.COMMIT)
@@ -511,11 +609,21 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
                 host.requestRender()
             }
         }
+        // Clip layer with a live selection: HOLD a manual register = CUT into
+        // it (the two live source slots, idx 0-1, are never store targets).
+        if (layer == Layer.CLIP && k.fn == null && k.idx >= 2 && selStart != selEnd) {
+            st.holdTask = host.schedule(tun.holdMs) {
+                st.held = true
+                host.execute(EngineCommand.StoreClip(k.idx, cut = true))
+                host.haptic(HapticKind.CONFIRM)
+                setLayer(Layer.ALPHA)
+            }
+        }
     }
 
     private fun repeatBackspace(st: PointerState) {
         host.execute(EngineCommand.Backspace)
-        host.haptic(HapticKind.DRAG_TICK)
+        host.haptic(HapticKind.COMMIT)   // key-driven: buzzes with taps, not gesture ticks
         st.repTask = host.schedule(Config.REPEAT_MS) { repeatBackspace(st) }
     }
 
@@ -701,29 +809,47 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         val tapPx = tun.tapT * density
         val gesturePx = tun.gestureT * density
 
-        // Fast horizontal swipes move the cursor. With a selection (as it stood
-        // at touch-down), collapse to the swiped end; otherwise nudge one char —
-        // discarding anything a dying (fast) drag built, from the pre-drag caret.
+        // Quick flicks = COPY (left) / PASTE (right) — 2026-07-19 redesign; the
+        // ±1 cursor nudge is removed (slow drags own cursor movement). Raw-key
+        // hosts keep arrow flicks: terminals can't do context copy/paste.
         if (st.maxTravel > tapPx && (t - st.t0) < Config.FLICK_MS && abs(dx) > abs(dy)) {
             if (rawKeyMode) {
                 host.execute(EngineCommand.MoveCursor(if (dx < 0) -1 else 1))
-            } else if (st.sel0 != null) {
-                val pos = if (dx < 0) st.sel0.first else st.sel0.last
-                host.execute(EngineCommand.SetSelection(pos, pos))
-            } else if (st.del) {
-                val pos = (st.caret0 + if (dx < 0) -1 else 1).coerceAtLeast(0)
-                host.execute(EngineCommand.SetSelection(pos, pos))
-            } else {
-                host.execute(EngineCommand.MoveCursor(if (dx < 0) -1 else 1))
+                host.haptic(HapticKind.DRAG_TICK)
+                return
             }
-            host.haptic(HapticKind.DRAG_TICK)
+            // A fast flick can cross DRAG_T mid-gesture and briefly engage the
+            // drag engine, collapsing the selection live — restore the
+            // touch-down snapshot so copy/paste act on what the user selected.
+            // Engine-side fields update OPTIMISTICALLY too: the clip layer
+            // builds its selection slot from them before the echo lands
+            // (logcat-verified miss 2026-07-19).
+            if (st.del && st.sel0 != null) {
+                host.execute(EngineCommand.SetSelection(st.sel0.first, st.sel0.last))
+                selStart = st.sel0.first
+                selEnd = st.sel0.last
+            }
+            if (dx < 0) {
+                if (st.sel0 != null || selStart != selEnd) {
+                    host.execute(EngineCommand.Copy)
+                    host.haptic(HapticKind.CONFIRM)
+                } else {
+                    host.haptic(HapticKind.CANCEL)      // nothing selected: no
+                }                                       // surprise whole-text copy
+            } else {
+                // Flick right toggles the clipboard layer: in from anywhere,
+                // out from within (same gesture both ways).
+                setLayer(if (layer == Layer.CLIP) Layer.ALPHA else Layer.CLIP)
+            }
             return
         }
 
         // Slow drag released: the selection persists as it stands (deletion is
         // the DELETE key only — nothing destructive lives on a swipe).
+        // Haptics: selection release = CONFIRM (state changed, events toggle);
+        // cursor-drag release = silent (2026-07-19: gesture motion never buzzes).
         if (st.del) {
-            host.haptic(if (selStart != selEnd) HapticKind.CONFIRM else HapticKind.COMMIT)
+            if (selStart != selEnd) host.haptic(HapticKind.CONFIRM)
             return
         }
 
@@ -731,6 +857,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             val k = st.key ?: return
             when {
                 k.fn != null -> fnTap(k, t)
+                layer == Layer.CLIP -> clipTap(k)
                 st.long -> commitChar(altOf(k) ?: k.pri)    // hold fired: commit the alt
                 else -> commitChar(k.pri)
             }
@@ -738,7 +865,11 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
         }
         if (st.maxTravel < gesturePx) {                     // slow flick band: forgiving sloppy tap
             val k = st.key ?: return
-            if (k.fn != null) fnTap(k, t) else commitChar(k.pri)
+            when {
+                k.fn != null -> fnTap(k, t)
+                layer == Layer.CLIP -> clipTap(k)
+                else -> commitChar(k.pri)
+            }
             return
         }
 
@@ -753,6 +884,8 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
                 return
             }
             // Alpha: start-x half decides — left = symbols, right = calculator.
+            // (Clipboard layer opens via flick-right, not swipe-down — the
+            // thirds split stole territory from sym/num and was reverted.)
             setLayer(if (st.x0 < boardW / 2f) Layer.SYM else Layer.NUM)
         }
     }
@@ -793,6 +926,11 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
             buildKeys()
         }
         host.requestRender()
+        // getCursorCapsMode often reports 0 while the fresh InputConnection
+        // settles, and onUpdateSelection never fires for an unchanged (0,0) —
+        // a session-start eval alone misses "capitalize on entering a field".
+        // Re-evaluate after the connection settles.
+        host.schedule(120) { evalAutoCaps() }
     }
 
     override fun onSelectionUpdate(selStart: Int, selEnd: Int) {
@@ -807,6 +945,10 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
      *  armed (manual shift/caps is never overridden). Skipped mid-gesture —
      *  drag echoes would hammer the IPC — and re-evaluated on release-echo. */
     private fun evalAutoCaps() {
+        android.util.Log.d(
+            "Grid24",
+            "evalAutoCaps: autoCaps=${tun.autoCaps} raw=$rawKeyMode touches=${touches.size} shift=$shiftState",
+        )
         if (!tun.autoCaps || rawKeyMode || touches.isNotEmpty()) return
         if (shiftState == 0 && host.autoCapsNow()) {
             shiftState = 1
