@@ -1,4 +1,4 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 import android.graphics.Canvas
 import android.view.inputmethod.EditorInfo
@@ -103,7 +103,7 @@ interface Scheduled {
     fun cancel()
 }
 
-/** Host services available to an engine. Implemented by Grid24Ime + BoardView. */
+/** Host services available to an engine. Implemented by MosaicIme + BoardView. */
 interface EngineHost {
     fun execute(cmd: EngineCommand)
     fun haptic(kind: HapticKind)

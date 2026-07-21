@@ -1,4 +1,4 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 /**
  * Theme data — pure Kotlin (ARGB ints, no android.graphics) so engines stay

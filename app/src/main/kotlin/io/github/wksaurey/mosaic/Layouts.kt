@@ -1,4 +1,4 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 /**
  * Layout data — direct port of the prototype's LAYOUTS / NUMGRID tables

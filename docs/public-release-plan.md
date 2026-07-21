@@ -7,7 +7,7 @@ if the next never happens. Distribution research backing this: `docs/research/fd
 
 - [ ] **Name decision comes FIRST** — "grid24" is a working title, not settled
       (Kolter, 2026-07-19). It gates the README, the logo, and critically the
-      `applicationId` (`io.github.wksaurey.grid24`), which becomes permanent the
+      `applicationId` (`io.github.wksaurey.mosaic`), which becomes permanent the
       moment the first public APK ships. Decide before anything below.
 - [ ] README — first draft written and rejected 2026-07-19 (didn't land; redo
       after the name is settled, in Kolter's voice). **Required before F-Droid**
@@ -58,7 +58,7 @@ if the next never happens. Distribution research backing this: `docs/research/fd
 3. [ ] **IzzyOnDroid**: submission MR (developer-signed APKs pulled from GitHub
        releases; screening incl. permission scan — our zero-permission manifest
        sails through). Rolling ~3-version window.
-4. [ ] **Main F-Droid**: metadata YAML MR to fdroiddata (`io.github.wksaurey.grid24.yml`),
+4. [ ] **Main F-Droid**: metadata YAML MR to fdroiddata (`io.github.wksaurey.mosaic.yml`),
        `Builds:` block, `AGPL-3.0-only` SPDX consistency (LICENSE file ✓).
        Re-verify current buildserver JDK/AGP support right before submitting —
        AGP 9.2 may be ahead of their image; be ready to hold an older AGP on a

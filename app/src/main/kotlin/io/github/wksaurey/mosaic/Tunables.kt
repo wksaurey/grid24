@@ -1,10 +1,10 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 /**
  * The live-tunable subset of the engine's constants, plus feature toggles —
  * the "settings lab" payload. Pure Kotlin (no Android imports) so engines can
  * depend on it without touching platform APIs; persistence lives host-side in
- * TunablesStore. Defaults mirror Grid24Engine.Config, which remains the
+ * TunablesStore. Defaults mirror MosaicEngine.Config, which remains the
  * greppable source of truth for tuned values (CLAUDE.md table).
  */
 data class Tunables(
@@ -23,10 +23,10 @@ data class Tunables(
     val autoSpacePunct: Boolean = true,
     /** One-shot symbol layer: typing any symbol returns to alpha. */
     val symOneShot: Boolean = true,
-    val rowHeight: Float = Grid24Engine.Config.LETTER_ROW_H,
-    val fnRowHeight: Float = Grid24Engine.Config.FN_ROW_H,
-    val gapH: Float = Grid24Engine.Config.GAP,   // horizontal gap between keys
-    val gapV: Float = Grid24Engine.Config.GAP,   // vertical gap between rows
+    val rowHeight: Float = MosaicEngine.Config.LETTER_ROW_H,
+    val fnRowHeight: Float = MosaicEngine.Config.FN_ROW_H,
+    val gapH: Float = MosaicEngine.Config.GAP,   // horizontal gap between keys
+    val gapV: Float = MosaicEngine.Config.GAP,   // vertical gap between rows
     /** Side margins (dp). Spacing, not tap traps: margin touches forgive to
      *  the nearest edge key, like the bottom dead zone forgives to the fn row. */
     val sideZone: Float = 0f,
@@ -41,13 +41,13 @@ data class Tunables(
                                          // crosses in drags/flicks (delete-repeat
                                          // buzzes under hapticTaps)
     val hapticEvents: Boolean = true,    // layer switches, double-space period
-    val tapT: Float = Grid24Engine.Config.TAP_T,
-    val gestureT: Float = Grid24Engine.Config.GESTURE_T,
-    val dragT: Float = Grid24Engine.Config.DRAG_T,
-    val holdMs: Long = Grid24Engine.Config.HOLD_MS,
-    val delStep: Float = Grid24Engine.Config.DEL_STEP,
-    val delBreak: Float = Grid24Engine.Config.DEL_BREAK,
-    val delRateMin: Float = Grid24Engine.Config.DEL_RATE_MIN,
-    val delRateMax: Float = Grid24Engine.Config.DEL_RATE_MAX,
-    val deadZone: Float = Grid24Engine.Config.DEAD_ZONE,
+    val tapT: Float = MosaicEngine.Config.TAP_T,
+    val gestureT: Float = MosaicEngine.Config.GESTURE_T,
+    val dragT: Float = MosaicEngine.Config.DRAG_T,
+    val holdMs: Long = MosaicEngine.Config.HOLD_MS,
+    val delStep: Float = MosaicEngine.Config.DEL_STEP,
+    val delBreak: Float = MosaicEngine.Config.DEL_BREAK,
+    val delRateMin: Float = MosaicEngine.Config.DEL_RATE_MIN,
+    val delRateMax: Float = MosaicEngine.Config.DEL_RATE_MAX,
+    val deadZone: Float = MosaicEngine.Config.DEAD_ZONE,
 )

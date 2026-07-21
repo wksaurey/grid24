@@ -1,4 +1,4 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 import android.content.ClipDescription
 import android.content.ClipboardManager
@@ -26,7 +26,7 @@ import android.view.inputmethod.InputConnection
  * KeyboardEngine to the current InputConnection and keeps field selection state
  * synced via onUpdateSelection (the source of truth; never assume).
  */
-class Grid24Ime : InputMethodService(), EngineHost {
+class MosaicIme : InputMethodService(), EngineHost {
 
     private lateinit var engine: KeyboardEngine
     private var boardView: BoardView? = null
@@ -121,7 +121,7 @@ class Grid24Ime : InputMethodService(), EngineHost {
     }
 
     /** Engine selection is a build-time constant for v1 (CLAUDE.md). */
-    private fun createEngine(): KeyboardEngine = Grid24Engine(this)
+    private fun createEngine(): KeyboardEngine = MosaicEngine(this)
 
     override fun onCreateInputView(): View {
         // API 35+: navigationBarColor is a documented no-op for gesture nav; the
@@ -169,7 +169,7 @@ class Grid24Ime : InputMethodService(), EngineHost {
         selStart = (info?.initialSelStart ?: 0).coerceAtLeast(0)
         selEnd = (info?.initialSelEnd ?: 0).coerceAtLeast(0)
         // QA breadcrumb: which InputConnection dialect is this host speaking?
-        Log.d("Grid24", "session: inputType=0x${Integer.toHexString(info?.inputType ?: -1)} raw=${rawKeyHost()}")
+        Log.d("Mosaic", "session: inputType=0x${Integer.toHexString(info?.inputType ?: -1)} raw=${rawKeyHost()}")
         // Fires on every field focus, repeatedly — the engine must reset
         // transient state (layer, gesture state) itself, every time.
         engine.onStartInput(info, restarting)
@@ -259,14 +259,14 @@ class Grid24Ime : InputMethodService(), EngineHost {
             is EngineCommand.SetSelection ->
                 if (!rawKeyHost()) ic.setSelection(cmd.a, cmd.b) // meaningless in terminals
             is EngineCommand.Copy ->
-                Log.d("Grid24", "ctx copy handled=${ic.performContextMenuAction(android.R.id.copy)} sel=$selStart..$selEnd")
+                Log.d("Mosaic", "ctx copy handled=${ic.performContextMenuAction(android.R.id.copy)} sel=$selStart..$selEnd")
             is EngineCommand.Cut ->
-                Log.d("Grid24", "ctx cut handled=${ic.performContextMenuAction(android.R.id.cut)} sel=$selStart..$selEnd")
+                Log.d("Mosaic", "ctx cut handled=${ic.performContextMenuAction(android.R.id.cut)} sel=$selStart..$selEnd")
             is EngineCommand.Paste ->
-                Log.d("Grid24", "ctx paste handled=${ic.performContextMenuAction(android.R.id.paste)}")
+                Log.d("Mosaic", "ctx paste handled=${ic.performContextMenuAction(android.R.id.paste)}")
             is EngineCommand.StoreClip -> {
                 val sel = ic.getSelectedText(0)?.toString()
-                Log.d("Grid24", "storeClip idx=${cmd.index} cut=${cmd.cut} len=${sel?.length}")
+                Log.d("Mosaic", "storeClip idx=${cmd.index} cut=${cmd.cut} len=${sel?.length}")
                 if (!sel.isNullOrEmpty() && !isPasswordField()) {
                     storeClipAt(cmd.index, sel)
                     if (cmd.cut) ic.commitText("", 1)   // cut: remove from the text
@@ -332,7 +332,7 @@ class Grid24Ime : InputMethodService(), EngineHost {
     override fun autoCapsNow(): Boolean {
         if (isPasswordField()) return false
         val ic = currentInputConnection ?: run {
-            Log.d("Grid24", "autoCapsNow: no InputConnection")
+            Log.d("Mosaic", "autoCapsNow: no InputConnection")
             return false
         }
         // Force the caps mask (rather than the field's own inputType) so the
@@ -340,7 +340,7 @@ class Grid24Ime : InputMethodService(), EngineHost {
         val mask = InputType.TYPE_CLASS_TEXT or
             InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_CAP_WORDS
         val modes = ic.getCursorCapsMode(mask)
-        Log.d("Grid24", "autoCapsNow: modes=0x${Integer.toHexString(modes)}")
+        Log.d("Mosaic", "autoCapsNow: modes=0x${Integer.toHexString(modes)}")
         if (modes and TextUtils.CAP_MODE_SENTENCES != 0) return true
         // AOSP reports WORDS (not SENTENCES) at the very start of empty text —
         // logcat-verified 2026-07-19. WORDS counts only when nothing precedes

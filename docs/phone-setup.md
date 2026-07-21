@@ -76,7 +76,7 @@ drop the active-keyboard selection; the script re-sets it every time).
   port changed; recheck step 4. Persistent flakiness → keep the Wireless
   debugging settings screen open, confirm USB debugging is also enabled.
 - `INSTALL_FAILED_UPDATE_INCOMPATIBLE` → a build signed with a different key is
-  installed (e.g. release over debug): `adb uninstall io.github.wksaurey.grid24`
+  installed (e.g. release over debug): `adb uninstall io.github.wksaurey.mosaic`
   then reinstall.
 - Keyboard installed but not appearing → it's per-profile: install, enable, and
   test in the same GrapheneOS user profile that has debugging enabled.

@@ -1,4 +1,4 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 import android.app.Activity
 import android.content.SharedPreferences
@@ -26,7 +26,7 @@ import android.widget.TextView
  * The settings LAB — deliberately hand-rolled (zero dependencies; the androidx
  * preference library would break the empty dependency graph). Feature toggles
  * and live sliders for the tuned constants; every change persists immediately
- * and applies the next time the keyboard opens (Grid24Ime re-reads on
+ * and applies the next time the keyboard opens (MosaicIme re-reads on
  * onStartInputView). The polished v2 settings replaces this skin and keeps the
  * TunablesStore plumbing. Reachable from the system keyboard settings gear
  * (method.xml settingsActivity) and the launcher.
@@ -79,7 +79,7 @@ class SettingsActivity : Activity() {
             }
         })
 
-        text("GRID24 · TUNING LAB", 20f, Ui.ACCENT, bold = true)
+        text("MOSAIC · TUNING LAB", 20f, Ui.ACCENT, bold = true)
         text("Changes apply the next time the keyboard opens. Defaults shown as (n).", 13f, Ui.DIM)
 
         header("Test fields — try changes right here")
@@ -304,6 +304,6 @@ class SettingsActivity : Activity() {
                 buildUi()
             }
         })
-        text("Defaults live in Grid24Engine.Config (see CLAUDE.md tuned-constants table).", 12f, Ui.DIM)
+        text("Defaults live in MosaicEngine.Config (see CLAUDE.md tuned-constants table).", 12f, Ui.DIM)
     }
 }

@@ -1,4 +1,6 @@
-# CLAUDE.md — Grid24 Keyboard: HTML Prototype → Android IME Port
+# CLAUDE.md — Mosaic Keyboard (formerly Grid24): HTML Prototype → Android IME Port
+
+> **RENAMED 2026-07-20: the keyboard is MOSAIC** (label: "Mosaic Keyboard"; appId `io.github.wksaurey.mosaic`; classes `MosaicIme`/`MosaicEngine`; logo by Beth in `assets/branding/`). "Grid24" below and in `reference/grid24-proto.html` is the working title this design was born under — historical references are intentional and stay.
 
 ## What this project is
 

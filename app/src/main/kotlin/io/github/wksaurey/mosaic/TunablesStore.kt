@@ -1,15 +1,15 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 import android.content.Context
 import android.content.SharedPreferences
 
 /**
  * SharedPreferences persistence for Tunables. Written by SettingsActivity,
- * re-read by Grid24Ime on every onStartInputView — so a changed setting
+ * re-read by MosaicIme on every onStartInputView — so a changed setting
  * applies the next time the keyboard opens, no restart.
  */
 object TunablesStore {
-    private const val PREFS = "grid24"
+    private const val PREFS = "mosaic"
 
     const val K_LAYOUT = "layout"
     const val K_THEME = "theme"
@@ -43,7 +43,7 @@ object TunablesStore {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun load(ctx: Context): Tunables {
-        val d = Tunables() // defaults from Grid24Engine.Config
+        val d = Tunables() // defaults from MosaicEngine.Config
         val p = prefs(ctx)
         return Tunables(
             layout = p.getString(K_LAYOUT, d.layout) ?: d.layout,

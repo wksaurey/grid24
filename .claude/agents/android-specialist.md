@@ -57,7 +57,7 @@ The failure modes you specifically watch for:
 - Signing: one pinned debug keystore across hosts; `adb uninstall` before any debug↔release key
   switch; release keystore git-ignored, 4096-bit RSA, backed up offline, chosen deliberately
   (it becomes the published signature if F-Droid reproducible-verified later).
-- Loop: `./gradlew installDebug && adb shell ime set <pkg>/.Grid24Ime` (reinstall can drop IME
+- Loop: `./gradlew installDebug && adb shell ime set <pkg>/.MosaicIme` (reinstall can drop IME
   selection); emulator for M0/M1 sanity only — all tuning on the physical Pixel; scrcpy only
   with `--no-control`.
 

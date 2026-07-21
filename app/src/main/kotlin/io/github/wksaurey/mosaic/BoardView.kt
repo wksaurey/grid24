@@ -1,4 +1,4 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -76,6 +76,6 @@ class BoardView(context: Context, private val engine: KeyboardEngine) : View(con
         return true
     }
 
-    // Haptics moved host-side (Grid24Ime.haptic): intensity control needs
+    // Haptics moved host-side (MosaicIme.haptic): intensity control needs
     // VibrationEffect, which performHapticFeedback can't express.
 }

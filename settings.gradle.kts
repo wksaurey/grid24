@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "grid24"
+rootProject.name = "mosaic"
 include(":app")

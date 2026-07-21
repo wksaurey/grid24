@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Grid24</string>
-    <string name="ime_label">Grid24 Keyboard</string>
+    <!-- Name decided 2026-07-20: MOSAIC (logo by Beth). Label carries
+         "Keyboard" for app-list clarity (the FUTO convention); appId is
+         io.github.wksaurey.mosaic — renamed pre-publication, permanent after. -->
+    <string name="app_name">Mosaic Keyboard</string>
+    <string name="ime_label">Mosaic Keyboard</string>
     <string name="subtype_en">English (US)</string>
-    <string name="settings_label">Grid24 Settings</string>
+    <string name="settings_label">Mosaic Settings</string>
 </resources>

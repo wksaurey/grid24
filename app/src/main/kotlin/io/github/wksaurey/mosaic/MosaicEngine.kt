@@ -1,4 +1,4 @@
-package io.github.wksaurey.grid24
+package io.github.wksaurey.mosaic
 
 import android.graphics.Canvas
 import android.graphics.CornerPathEffect
@@ -12,7 +12,7 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
- * The Grid24 keyboard engine — port of reference/grid24-proto.html (the
+ * The Mosaic keyboard engine — port of reference/grid24-proto.html (the
  * executable spec; when in doubt, open it and do what it does).
  *
  * v1-complete (M0–M6): board rendering + geometry-correct hit-testing, holds
@@ -25,7 +25,7 @@ import kotlin.math.hypot
  * ("Approved deviations") — notably shift-tracking glyph case, the drag zone
  * split, replace-on-type, and the 2026-07-17 constant retunes.
  */
-class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
+class MosaicEngine(private val host: EngineHost) : KeyboardEngine {
 
     /* Tuned constants — the prototype's values (css-px ≈ dp). These numbers
      * encode real debugging: keep them. */
@@ -946,7 +946,7 @@ class Grid24Engine(private val host: EngineHost) : KeyboardEngine {
      *  drag echoes would hammer the IPC — and re-evaluated on release-echo. */
     private fun evalAutoCaps() {
         android.util.Log.d(
-            "Grid24",
+            "Mosaic",
             "evalAutoCaps: autoCaps=${tun.autoCaps} raw=$rawKeyMode touches=${touches.size} shift=$shiftState",
         )
         if (!tun.autoCaps || rawKeyMode || touches.isNotEmpty()) return
